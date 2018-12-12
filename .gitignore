@@ -1,0 +1,15 @@
+.RData
+.Rhistory
+*.results
+.png
+.mov
+*cache/
+presentations/
+data/
+.Rproj.user
+packrat/lib*/
+experiments/
+.DS_store
+*.icloud
+hddm/
+.ipynb_checkpoints/
