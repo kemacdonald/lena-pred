@@ -1,0 +1,65 @@
+---
+title: "Act-lena Descriptives"
+author: "Kyle MacDonald"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+```{r libraries}
+library(fst)
+library(magrittr)
+library(tidyverse)
+```
+
+The full data takes some time to load into memory, so we use the `to` and `from` arguments to load a subset of the data.
+
+```{r read data}
+start_file <- 1
+end_file <- 287880 # this gives you the first child's data
+
+ d <- read_fst(path = here::here("data/02_processed_data/act-lena-segments.fst"),
+               from = start_file,
+               to = end_file)
+```
+
+## Descriptives
+
+How many kids?
+
+```{r}
+d %>% distinct(child_id, childs_gender, child_age_in_months.x)
+```
+
+How many segements do we have for each child?
+
+```{r}
+d %>% count(child_id) 
+```
+
+How many pauses vs. conversations? 
+
+```{r}
+d %>% count(blk_type)
+```
+
+## Conversations
+
+```{r}
+d_conv <- d %>% filter(blk_type == "Conversation")
+```
+
+## Segement
+
+```{r}
+d_segment <- d_conv %>% filter(seg_id == 2) %>% distinct()
+```
+
+
+
+
+
