@@ -30,11 +30,12 @@ d_recordings %<>% tidy_var_names()
 # separate names of recordings that were split into different files for one age point
 # gather to convert data to long format 
 d_recordings %<>% 
-  select(recording_filename, child_id, child_age_in_months) %>% 
+  rename(child_age_months = child_age_in_months) %>% 
+  select(recording_filename, child_id, child_age_months) %>% 
   separate(col = recording_filename,
            sep = " and ",
            into = c("recording_filename_a", "recording_filename_b", "recording_filename_c")) %>% 
-  gather(key = recording_type, value = recording_filename, -child_age_in_months, -child_id,
+  gather(key = recording_type, value = recording_filename, -child_age_months, -child_id,
          na.rm = TRUE)
 
 # select only variables of interest from subject metadata and clean child_id var name 

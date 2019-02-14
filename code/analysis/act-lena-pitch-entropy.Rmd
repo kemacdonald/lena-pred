@@ -1,0 +1,10 @@
+---
+title: "Act-Lena Pitch Entropy"
+author: "Kyle MacDonald"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+

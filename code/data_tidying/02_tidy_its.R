@@ -14,7 +14,7 @@ metadata_path = "data/02_processed_data/"
 
 # read metadata file
 d_meta <- read_csv(here::here(metadata_path, "act-lena-metadata.csv")) %>% 
-  select(child_id, child_age_in_months, recording_filename, 
+  select(child_id, child_age_months, recording_filename, 
          permission_level:language_input,
          -childs_gender) %>% 
   distinct()
@@ -26,8 +26,8 @@ all_files <- dir(path = its_path,
              recursive = T)
 
 # map the process ITS file function over all files
-files_to_process <- all_files[1]
-d <- files_to_process %>% purrr::map(safe_process_its_file)
+files_to_process <- all_files[1:8]
+d <- files_to_process %>% purrr::map(safe_process_its_file, "block")
 
 # extract the errors and join with file name
 error_log <- tibble (
@@ -39,14 +39,12 @@ error_log <- tibble (
 d_final <- transpose(d)[['result']] %>% reduce(bind_rows)
 
 # join segments data with the rest of the metadata about the child (demographics)
-d_final %<>% left_join(d_meta, by = c("child_id", "child_age_in_months"))
-
-d_final %<>% 
+d_final %<>% left_join(d_meta, by = c("child_id", "child_age_months")) %>% 
   rename(mom_age = mothers_age_at_the_time_of_the_childs_3_month_recording,
          dad_age = fathers_age_at_the_time_of_the_childs_3_month_recording)
 
 # save data to fst file for fast read/write
-fst::write.fst(d_final, here::here("data/02_processed_data/act-lena-segments.fst"))
+fst::write.fst(d_final, here::here("data/02_processed_data/act-lena-blocks.fst"))
 
 # save error log to review the ITS files later
-write_csv(error_log, path = here::here("data/02_processed_data/act-lena-error-log.csv"))
+write_csv(error_log, path = here::here("data/02_processed_data/act-lena-blocks-error-log.csv"))
