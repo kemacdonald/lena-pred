@@ -8,3 +8,15 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r}
+library(soundgen)
+library(tidyverse)
+tuneR::setWavPlayer('/usr/bin/afplay')
+```
+
+## Read one wave file
+
+```{r}
+cds <- analyze()
+```
+
