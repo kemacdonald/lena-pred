@@ -1,5 +1,5 @@
 ---
-title: "Act-Lena Pitch Entropy"
+title: "Lena-ent Pitch Entropy"
 author: "Kyle MacDonald"
 output: html_document
 ---
@@ -12,11 +12,127 @@ knitr::opts_chunk$set(echo = TRUE)
 library(soundgen)
 library(tidyverse)
 tuneR::setWavPlayer('/usr/bin/afplay')
+path_to_wav <- "data/01_raw_data/pilot-ads-ids-segments"
 ```
 
-## Read one wave file
+## Analyze one wave file
+
+Under the hood of soundgen `analyze()` is the short-time Fourier transform (STFT)
+
+    * look at one short segment of sound at a time (one STFT frame), 
+    * analyze its spectrum using Fast Fourier Transform (FFT), 
+    * and then move on to the next - perhaps overlapping - frame. 
+
+As the analysis window slides along the signal, STFT shows which frequencies it contains at different points of time.
+
+First, we grab the audio segments that we want to analyze.
 
 ```{r}
-cds <- analyze()
+files_to_analyze <- list.files(here::here(path_to_wav))
+ads_seg <- files_to_analyze[1]
+ids_seg <- files_to_analyze[2]
 ```
+
+We can listen to a file using the `playme()` function like this:
+
+```{r}
+playme(here::here(path_to_wav, ads_seg))
+```
+
+Next, we use the `analyze()` function to generate features about the audio segment.
+
+```{r}
+a_ads <- analyze(x = here::here(path_to_wav, ads_seg), 
+                 samplingRate =  100, # same sampling rate as Rasanen et al., 2018
+                 ylim = c(0.1, 0.8),
+                 priorMean = HzToSemitones(300), priorSD = 6)  
+```
+
+What is median pitch?
+
+```{r}
+a_ads$pitch %>% median(na.rm=T)
+```
+
+How does pitch of segment change over time?
+
+```{r}
+qplot(a_ads$time, a_ads$pitch, geom = 'line') +
+  labs(x = "Time (ms)", y = "Pitch (Hz)")
+```
+
+### IDS segment
+
+```{r}
+playme(here::here(path_to_wav, ids_seg))
+```
+
+```{r}
+a_ids <- analyze(x = here::here(path_to_wav, ids_seg), 
+                 samplingRate =  100, # same sampling rate as Rasanen et al., 2018
+                 ylim = c(0.1, 0.8),
+                 showLegend = FALSE)
+
+# Store pitch tracking information in a tibble
+d_pitch <- tibble(
+  segment_type = 'ids',
+  pitch = a_ids$pitch,
+  time_utt_ms = a_ids$time
+)
+```
+
+#### Fit a second order polynomial to the F0 trajectory in time. 
+
+First we have to interpolate between regions of the audio segment that did not have pitch measurements (i.e., unvoiced speech).
+
+To do this we can use the `cubicspline()` function from the pracma package. 
+
+```{r}
+x <- d_pitch %>% filter(!is.na(pitch)) %>% pull(time_utt_ms)
+y <- d_pitch %>% filter(!is.na(pitch)) %>% pull(pitch)
+
+pp <- pracma::cubicspline(x, y)
+ppfun <- function(x) {pracma::ppval(pp, x)}
+```
+
+Plot the interpolation function. 
+
+```{r}
+d_pitch %>% 
+  mutate(pitch_int = ppfun(time_utt_ms)) %>% 
+  filter(time_utt_ms >= min(x), 
+         time_utt_ms <= max(x)) %>% 
+  ggplot() +
+  geom_point(aes(x = time_utt_ms, y = pitch_int), color = 'grey') + 
+  geom_point(aes(x = time_utt_ms, y = pitch), size = 3, color = 'darkred')
+```
+
+Hmm, this looks a lot wigglier than the interpolated points in the Rasanen paper. They also  used 30-ms median filtering to the resulting pitch tracks to remove single outlier values.
+
+### Interpolation using soundgen
+
+```{r}
+a_ids_interp <- analyze(x = here::here(path_to_wav, ids_seg), 
+                        samplingRate = 100, plotSpec = FALSE, showLegend = F,
+                        smooth = 0,
+                        interpolWin = 3,
+                        interpolTol = Inf,
+                        interpolCert = 0)
+                        
+```
+
+
+## Modifying the settings of analyze function
+
+Visual inspection of the spectrogram suggests that the speech is being filtered (no pitch contour). So let's modify the deault settings.
+
+    * windowLength: the length of sliding STFT window. Longer windows (e.g., 40 - 50 ms) improve frequency resolution at the expense of time resolution, so they are good for detecting relatively low, slowly changing F0, as in human moans or grunts. Shorter windows (e.g., 5 - 10 ms) improve time resolution at the expense of frequency resolution, so they are good for visualizing formants or tracking high-frequency, rapidly changing F0 as in bird chirps or dolphin whistles.
+    
+    * step: the step of sliding STFT window. For example, if windowLength = 50 and step = 25, each time we move the analysis frame, there is a 50% overlap with the previous frame. This introduces redundancy into the analysis, but it also - to some limited extent - improves time resolution while maintaining relatively high frequency resolution. The main cost of small steps (large overlap) is processing time, but very large overlap is not always desirable, even when processing time is not an issue. If some audio segments are problematic (e.g., very noisy), pitch contour may actually be more accurate with relatively large steps and more smoothing. It is therefore best to check the results with different steps and/or run formal optimization (remember to adjust smoothing and other postprocessing parameters together with STFT settings)
+    
+    * wn: the type of windowing function used to taper the analysis frame during STFT. In practice the windowing function doesn’t seem to have a major effect on the result, as long as you choose something reasonable like gaussian, hanning, or bartlett.
+    
+    * zp: zero-padding. You can use a short STFT window and improve its frequency resolution by padding each frame with zeroes. This is a computational trick that - again, to some limited extent - improves frequency resolution while maintaining relatively high time resolution.
+    
+    * silence: frames with root mean square (RMS) amplitude below silence threshold are not analyzed at all. Quiet frames are harder to analyze, because their signal-to-noise ratio is lower. As a result, we want to strike a good balance. Setting silence too low (close to 0) produces a lot of garbage, as the algorithm tries to analyze frames that are essentially just background noise without any signal. Setting silence too high (close to 1) excludes too many perfectly good frames, misrepresenting the signal. 
 
