@@ -10,9 +10,12 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(soundgen)
+library(magrittr)
 library(tidyverse)
 tuneR::setWavPlayer('/usr/bin/afplay')
 path_to_wav <- "data/01_raw_data/pilot-ads-ids-segments"
+point_color = "darkorange"
+model_fit_color = "dodgerblue"
 ```
 
 ## Analyze one wave file
@@ -68,9 +71,15 @@ playme(here::here(path_to_wav, ids_seg))
 ```
 
 ```{r}
+lowest_pitch <- 75
+highest_pitch <- 1000 
+sampling_rate <- 100 # same sampling rate as Rasanen et al., 2018
+hz_lims <- c(0.1, 0.8)
+
 a_ids <- analyze(x = here::here(path_to_wav, ids_seg), 
-                 samplingRate =  100, # same sampling rate as Rasanen et al., 2018
-                 ylim = c(0.1, 0.8),
+                 samplingRate =  sampling_rate, 
+                 pitchFloor = lowest_pitch, pitchCeiling = highest_pitch,
+                 ylim = hz_lims,
                  showLegend = FALSE)
 
 # Store pitch tracking information in a tibble
@@ -95,30 +104,190 @@ pp <- pracma::cubicspline(x, y)
 ppfun <- function(x) {pracma::ppval(pp, x)}
 ```
 
+We also log transform the pitch values because people's perception of pitch change logarithmically. 
+
+```{r}
+d_pitch %<>% 
+  mutate(pitch_int = ppfun(time_utt_ms), 
+         log_pitch = log(pitch),
+         z_log_pitch = scale(log_pitch))
+
+# check z score worked
+d_pitch$z_log_pitch %>% mean(na.rm = T)
+d_pitch$z_log_pitch %>% sd(na.rm = T)
+```
+
 Plot the interpolation function. 
 
 ```{r}
-d_pitch %>% 
-  mutate(pitch_int = ppfun(time_utt_ms)) %>% 
+a <- d_pitch %>% 
   filter(time_utt_ms >= min(x), 
          time_utt_ms <= max(x)) %>% 
   ggplot() +
-  geom_point(aes(x = time_utt_ms, y = pitch_int), color = 'grey') + 
-  geom_point(aes(x = time_utt_ms, y = pitch), size = 3, color = 'darkred')
+  geom_line(aes(x = time_utt_ms, y = pitch_int), color = model_fit_color, size = 1) +
+  #geom_point(aes(x = time_utt_ms, y = pitch_int), color = 'darkred') + 
+  geom_point(aes(x = time_utt_ms, y = pitch), size = 3, color = point_color) +
+  lims(y = c(0, 700)) +
+  labs(x = "Time (ms)", y = "Pitch (Hz)", title = "Cubic Spline")
 ```
 
 Hmm, this looks a lot wigglier than the interpolated points in the Rasanen paper. They also  used 30-ms median filtering to the resulting pitch tracks to remove single outlier values.
 
-### Interpolation using soundgen
+### Interpolation using loess 
 
 ```{r}
-a_ids_interp <- analyze(x = here::here(path_to_wav, ids_seg), 
-                        samplingRate = 100, plotSpec = FALSE, showLegend = F,
-                        smooth = 0,
-                        interpolWin = 3,
-                        interpolTol = Inf,
-                        interpolCert = 0)
-                        
+# Use span to control the "wiggliness" of the default loess smoother.
+# The span is the fraction of points used to fit each local regression:
+# small numbers make a wigglier curve, larger numbers make a smoother curve.
+
+frac_points <- 0.18
+
+b <- d_pitch %>% 
+  filter(time_utt_ms >= min(x), 
+         time_utt_ms <= max(x)) %>% 
+  ggplot() +
+  geom_smooth(aes(x = time_utt_ms, y = pitch), span = frac_points, se = F, 
+              color = "dodgerblue") +
+  #geom_line(aes(x = time_utt_ms, y = pitch_int), color = 'darkgrey', size = 1) +
+  #geom_point(color = 'blue') + 
+  geom_point(aes(x = time_utt_ms, y = pitch), size = 3, color = 'darkorange') +
+  lims(y = c(0, 700)) +
+  labs(x = "Time (ms)", y = "Pitch (Hz)") +
+  labs(title ="Loess Fit")
+```
+
+Plot the two intrporolation functions next to each other
+
+```{r}
+cowplot::plot_grid(a, b)
+```
+
+Next, we can make the same plot but using the log transformed and normalized pitch values. 
+
+```{r}
+d_pitch %>% 
+  filter(time_utt_ms >= min(x), 
+         time_utt_ms <= max(x)) %>% 
+  ggplot(aes(x = time_utt_ms, y = z_log_pitch)) +
+  geom_hline(yintercept = 0, lty = "dashed") +
+  geom_smooth(span = frac_points, se = F, color = model_fit_color) +
+  geom_point(color = point_color, size = 3) + 
+  labs(x = "Time (ms)", y = "Z-score normalized log(pitch)") +
+  lims(y = c(-2,2)) +
+  theme(panel.grid = element_blank())
+```
+
+### Sample entropy 
+
+```{r}
+# define the model
+m_loess <- loess(z_log_pitch ~ time_utt_ms, span = frac_points,
+                 data = d_pitch)
+
+
+# predict fitted values for each observation in the original dataset
+df_preds <- predict(m_loess, 
+                    newdata = d_pitch, 
+                    se = TRUE) %>% 
+  data.frame()
+```
+
+Calculate sample entropy of the interpolated pitch contour. Sample entropy was introduced to quantify the the amount of regularity and the unpredictability of fluctuations in a time series. A low value of the entropy indicates that the time series is deterministic; a high value indicates randomness. 
+
+```{r}
+samp_ent_ids <- df_preds %>% 
+  filter(!is.na(fit)) %>%
+  pull(fit) %>% 
+  pracma::sample_entropy() %>% 
+  round(2)
+```
+
+Plot the predicted values from the loess model. 
+
+```{r}
+loess_preds_ids <- df_preds %>% 
+  mutate(time = d_pitch$time_utt_ms) %>% 
+  ggplot(aes(x = time, y = fit)) +
+  geom_line(color = model_fit_color, size = 1) +
+  geom_point(color = point_color, size = 2) + 
+  labs(x = "Time (ms)", y = "Z-score log(pitch)",
+       subtitle = paste('sample entropy = ', samp_ent_ids)) +
+  lims(y = c(-2,2))
+
+loess_preds_ids
+```
+
+Now do the same thing with the ADS segment.
+
+```{r}
+# extract pitch contour 
+d_pitch_ads <- tibble(
+  segment_type = 'ads',
+  pitch = a_ads$pitch,
+  time_utt_ms = a_ads$time
+)
+
+# interpolate, log transform, and z-score
+d_pitch_ads %<>% 
+  mutate(pitch_int = ppfun(time_utt_ms), 
+         log_pitch = log(pitch),
+         z_log_pitch = scale(log_pitch))
+
+# define the model
+m_loess_ads <- loess(z_log_pitch ~ time_utt_ms, span = frac_points,
+                 data = d_pitch_ads)
+
+
+# predict fitted values for each observation in the original dataset
+df_preds_ads <- predict(m_loess_ads, 
+                    newdata = d_pitch_ads, 
+                    se = TRUE) %>% 
+  data.frame()
+
+# calculate entropy
+samp_ent <- df_preds_ads %>% 
+  filter(!is.na(fit)) %>%
+  pull(fit) %>% 
+  pracma::approx_entropy() %>% 
+  round(2)
+
+# plot 
+loess_preds_ads <- df_preds_ads %>% 
+  mutate(time = d_pitch_ads$time_utt_ms) %>% 
+  ggplot(aes(x = time, y = fit)) +
+  geom_line(color = model_fit_color, size = 1) +
+  geom_point(color = point_color, size = 2) + 
+  labs(x = "Time (ms)", y = "Z-score log(pitch)",
+       subtitle = paste('sample entropy = ', samp_ent)) +
+  lims(y = c(-2,2))
+
+loess_preds_ads
+```
+
+Plot IDS and ADS curves next to each other:
+
+```{r}
+cowplot::plot_grid(loess_preds_ids, loess_preds_ads, 
+                   labels = c('(IDS)', '(ADS)'), 
+                   scale = 0.85)
+```
+
+### Fixed frame temporal segmentation
+
+Here we replicate the approach of using uniformly spaced segments where F0 was sampled and predicted at regular intervals. Following, Rasanen et al., 2018 we use 100-ms non-overlapping segments.
+
+> Voicing information was used to determine the first and last valid segment of each utterance.
+
+### Polynomial fit to the F0 trajectory in each time bin
+
+```{r}
+ p <- pracma::polyfit(x, y, 2)
+```
+
+### Vector quantisation of curves in each segment
+
+```{r}
+
 ```
 
 
