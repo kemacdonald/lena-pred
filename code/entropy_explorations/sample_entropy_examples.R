@@ -68,5 +68,5 @@ sample_entropy(sin(seq(1,100, by=0.1))) # ~1000 data points
 
 ## What about the length of time series
 
-sample_entropy(sin(seq(1,10, by=0.2))) # ~500 data points
+sample_entropy(sin(seq(1,10, by=0.2)), edim = 1) # ~500 data points
 sample_entropy(sin(seq(1,100, by=0.1))) # ~1000 data points

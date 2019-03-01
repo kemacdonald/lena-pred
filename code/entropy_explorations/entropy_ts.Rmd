@@ -5,12 +5,16 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, fig.align = 'center')
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F,
+                      fig.align = 'center',
+                      fig.width= 10, fig.asp=0.85, 
+                      out.width = "75%")
 ```
 
-## Set up
+## Setup
 
 ```{r, echo = F, warning=F, message=F}
+set.seed(27)
 library(pracma); library(TSEntropies); library(MSMVSampEn)
 library(magrittr); library(tidyverse)
 ```
@@ -80,6 +84,8 @@ data points u[1], u[2] and u[3] represent u[1] ± r, u[2] ± r, and u[3] ± r, r
 knitr::include_graphics(here::here('code/entropy_explorations/sampent_example.png'))
 ```
 
+Therefore, in this case, the number of sequences matching the 2-component template sequences is two and the number of sequences matching the 3-component template sequence is 1. These calculations are repeated for the next 2-component and 3-component template sequence, which are, (u[2], u[3]) and (u[2], u[3], u[4]), respectively.
+
 ### Multiscale entropy
 
 Multiscale entropy is an extension of approximate/sample entropy that examines the complexity of a time series at different time scales via a process of coarse-graining at different intervals specified by thee value of a $ \delta$ parameter.
@@ -123,11 +129,12 @@ ts_pink_noise <- tuneR::noise(kind = c("pink"),
   .@left
 
 curves_list <- list(ts_periodic, ts_sin, ts_pink_noise, ts_white_noise)
+names(curves_list) <- c("periodic", "sine", "pink noise", "white noise")
 ```
 
 Next, let's plot those curves along with their estimates of sample entropy using the default parameter settings  $r = 0.2*sd(ts)$ and $m = 2$.
 
-```{r, fig.width=12, fig.asp=0.85, out.width = "75%"}
+```{r}
 plot_ts_ent <- function(ts) {
   
   qplot(seq(1, length(ts)), ts, geom = 'line') +
@@ -136,17 +143,73 @@ plot_ts_ent <- function(ts) {
                           sample_entropy(ts) %>% round(2)))
 }
 
-plot_labels <- c("periodic", "sine", "pink noise", "white noise")
-
 curves_list %>% 
   purrr::map(plot_ts_ent) %>% 
   cowplot::plot_grid(plotlist = ., ncol = 1, scale = 0.85,
-                     labels = plot_labels, hjust = .0001)
+                     labels = names(.), hjust = .0001)
 ```
 
 We can see that `sample_entropy()` provides a reasonable rank ordering of entropy for the various signals: $periodic < sine < pink \ noise < white \ noise$.
 
+### Why does sine wave not also have zero entropy?
 
+Ack, don't have a precise answer. But I found other papers where they show similar entropy values for sine waves. From Lee et al. (2013):
+
+> We computed ApEn values for six regular sine curve sequences of 4000 points, with a simulated sampling rate of 250 Hz. The sine frequencies used were 1, 2, 4, 8, 16, and 32 Hz ApEn values for the simulated data ranged between 0.07 and 0.29 for the sine curves.
+
+### What happens when you change tolerance?
+
+Let's simulate the entropy calculation for different levels of $r$ and plot.
+
+```{r}
+sim_r <- function(ts, r_vals) {
+  r_vals %>% 
+    purrr::map_dbl(function(x) sample_entropy(ts = ts, r = x * sd(ts)))
+}
+
+r_vals <-  seq(0.1, 4, by = 0.25) 
+r_samp_ents <- curves_list %>% purrr::map(sim_r, r_vals)
+
+r_plots <- r_samp_ents %>% 
+  purrr::map(~ qplot(x = r_vals,  y = .x, geom = c('line', 'point')) + 
+               labs(x = 'tolerance value (r)', y = 'sample entropy') +
+               lims(x = c(0, 4), y = c(0,3.2)), 
+             r_vals)
+
+cowplot::plot_grid(plotlist = r_plots, labels = names(r_samp_ents),
+                   vjust = 0.1)
+```
+
+As the tolerance increases, the amount of entropy or uncertainty decreases. This makes sense since the probability of getting similar vectors has increased meaning the time-series is more regular. 
+
+### What happens when you change the embedding size?
+
+Here we show what happens to the sample entropy calculation for the different time-series when you change the embedding size. 
+
+```{r}
+sim_m <- function(ts, m_vals) {
+  m_vals %>% 
+    purrr::map_dbl(function(x) sample_entropy(ts = ts, edim = x))
+}
+
+m_vals <- seq(2, 6, by = 1)
+m_samp_ents <- curves_list %>% purrr::map(sim_m, m_vals)
+
+m_plots <- m_samp_ents %>% 
+  purrr::map(~ qplot(x = m_vals,  y = .x, geom = c('line', 'point')) + 
+               labs(x = 'embedding size (m)', y = 'sample entropy') +
+                lims(y = c(0, 3.5)), 
+             m_vals)
+
+cowplot::plot_grid(plotlist = m_plots, labels = names(m_samp_ents),
+                   vjust = 0.2)
+```
+
+As you increase the embedding dimension, 
+
+### What happens when you vary the length of the time-series?
+
+TODO: 
 
 
 
