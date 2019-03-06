@@ -1,0 +1,121 @@
+---
+title: "lena-ent-pitch-processing"
+author: "Kyle MacDonald"
+output: html_document
+---
+
+## Setup and Overview
+
+This code takes raw audio and converts it to a categorical time series representing the unfolding of pitch information. The high-level goal is to create a feature set that is suited for a categorical time series prediction model. That is, we want to create a series of states that we can then use to predict the next state in a sequence, taking into account long-term dependencies.
+
+The data processing pipeline is:
+
+* Extract F0 pitch contour from raw audio
+* Interpolate F0 across unvoiced regions of the signal using loess model
+* Log transform and z-score normalize F0
+* Segement the time series into 100 millisecond bins
+* Fit a second order polynomial to the F0 curve in each time bin
+* Use k-means clustering algorithm to classify F0 shapes into categories
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F,
+                      fig.align = 'center', fig.width = 10, 
+                      fig.asp = 0.7, out.width = "80%")
+```
+
+```{r libraries and globals}
+library(soundgen)
+library(magrittr); library(tidyverse)
+tuneR::setWavPlayer('/usr/bin/afplay')
+path_to_wav <- "data/01_raw_data/pilot-ads-ids-segments"
+point_color = "darkorange"
+model_fit_color = "dodgerblue"
+```
+
+## Read in raw audio
+
+```{r read audio}
+files_to_analyze <- list.files(here::here(path_to_wav))
+ads_seg <- files_to_analyze[1]; ids_seg <- files_to_analyze[2]
+```
+
+## Extract pitch contours
+
+```{r globals pitch extraction}
+lowest_pitch <- 75
+highest_pitch <- 1000 
+hz_lims <- c(0.1, 0.8)
+
+a_ads <- analyze(x = here::here(path_to_wav, ads_seg), 
+                 pitchFloor = lowest_pitch, pitchCeiling = highest_pitch,
+                 plot = FALSE) %>% 
+  mutate(seg_id = str_remove(ads_seg, '.wav')) %>% 
+  select(seg_id, pitch, voiced, time, ampl) 
+```
+
+Find first voiced region and re-zero the time variable based on this point. 
+
+```{r}
+# filters time series to first voiced sample
+# re-zeroes the the time variable
+filter_first_voiced <- function(df) {
+  
+  min_cut_point <- df %>% 
+    filter(!is.na(pitch)) %>% 
+    pull(time) %>% min()
+  
+  df %>% filter(time >= min_cut_point) %>% mutate(time = time - min_cut_point)
+}
+
+filter_first_voiced(a_ads) -> a_ads
+```
+
+## Interpolate pitch contour over unvoiced regions
+
+```{r interpolate}
+interpolate_loess <- function(df, sample_rate, frac_points) {
+  t_to_predict <- seq(0, max(df$time), by = sample_rate)
+  preds <- loess(pitch ~ time, data = df, 
+                 span = frac_points) %>% 
+    predict(t_to_predict)
+  
+  print(preds)
+  
+  tibble(
+    seg_id = df$seg_id[1],
+    time = t_to_predict, 
+    pitch_interpolated = preds
+  )
+}
+
+frac_points_loess <- 0.1
+pred_sample_rate <- 10
+
+interpolate_loess(a_ads, frac_points_loess, sample_rate = pred_sample_rate) -> a_ads
+
+# plot one interpolated pitch contour
+a_ads %>% 
+  ggplot(aes(x = time, y = pitch_interpolated)) +
+  geom_point(aes(x = time, y = pitch_interpolated), color = point_color) +
+  lims(y = c(50, 450)) +
+  labs(x = "Time (ms)", y = "Pitch (Hz)") 
+```
+
+## Log transform and Z-score
+
+```{r}
+a_ads %<>% mutate(log_pitch = log(pitch_interpolated), 
+                  z_log_pitch = scale(log_pitch))
+```
+
+## Temporal segmentation 
+
+```{r}
+time_bin_width <- 100 # ms
+a_ads %<>% mutate(time_bin = cut_width(time, 
+                                       width = time_bin_width,
+                                       boundary = 0))
+```
+
+
+

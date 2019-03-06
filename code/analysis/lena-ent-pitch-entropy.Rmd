@@ -62,8 +62,7 @@ a_ads <- analyze(x = here::here(path_to_wav, ads_seg),
                  pitchFloor = lowest_pitch,
                  pitchCeiling = highest_pitch,
                  samplingRate =  sampling_rate, 
-                 ylim = hz_lims,
-                 priorMean = HzToSemitones(300), priorSD = 6)  
+                 ylim = hz_lims)  
 ```
 
 What is median pitch?
@@ -151,7 +150,7 @@ Hmm, this looks a lot wigglier than the interpolated points in the Rasanen paper
 # The span is the fraction of points used to fit each local regression:
 # small numbers make a wigglier curve, larger numbers make a smoother curve.
 
-frac_points <- 0.18
+frac_points <- 0.25
 
 b <- d_pitch %>% 
   filter(time_utt_ms >= min(x), 
@@ -220,9 +219,9 @@ loess_preds_ids <- df_preds %>%
   ggplot(aes(x = time, y = fit)) +
   geom_line(color = model_fit_color, size = 1) +
   geom_point(color = point_color, size = 2) + 
-  labs(x = "Time (ms)", y = "Z-score log(pitch)",
-       subtitle = paste('sample entropy = ', samp_ent_ids)) +
-  lims(y = c(-2,2))
+  # labs(x = "Time (ms)", y = "Z-score log(pitch)",
+  #      subtitle = paste('sample entropy = ', samp_ent_ids)) +
+  lims(y = c(-2.5,2.5))
 ```
 
 Now do the same thing with the ADS segment.
@@ -265,8 +264,8 @@ loess_preds_ads <- df_preds_ads %>%
   ggplot(aes(x = time, y = fit)) +
   geom_line(color = model_fit_color, size = 1) +
   geom_point(color = point_color, size = 2) + 
-  labs(x = "Time (ms)", y = "Z-score log(pitch)",
-       subtitle = paste('sample entropy = ', samp_ent)) +
+  # labs(x = "Time (ms)", y = "Z-score log(pitch)",
+  #      subtitle = paste('sample entropy = ', samp_ent)) +
   lims(y = c(-2.5,2.5))
 ```
 
@@ -274,9 +273,42 @@ Plot IDS and ADS curves next to each other:
 
 ```{r}
 cowplot::plot_grid(loess_preds_ids, loess_preds_ads, 
-                   labels = c('(IDS)', '(ADS)'), 
+                   labels = c('(CDS)', '(ADS)'), 
                    scale = 0.85)
 ```
+
+Plot two pitch countours next to each other
+
+```{r}
+cds_plot <- d_pitch %>% 
+  filter(time_utt_ms >= min(x), 
+         time_utt_ms <= max(x)) %>% 
+  ggplot() +
+  geom_smooth(aes(x = time_utt_ms, y = pitch), 
+              span = frac_points, se = F, 
+              color = "dodgerblue") +
+  geom_point(aes(x = time_utt_ms, y = pitch), size = 3, 
+             color = 'darkorange') +
+  lims(y = c(0, 700)) +
+  labs(x = "Time (ms)", y = "Pitch (Hz)") +
+  labs(title ="CDS")
+
+ads_plot <- d_pitch_ads %>% 
+  filter(time_utt_ms >= min(x), 
+         time_utt_ms <= max(x)) %>% 
+  ggplot() +
+  geom_smooth(aes(x = time_utt_ms, y = pitch), 
+              span = frac_points, se = F, 
+              color = "dodgerblue") +
+  geom_point(aes(x = time_utt_ms, y = pitch), size = 3, 
+             color = 'darkorange') +
+  lims(y = c(0, 700)) +
+  labs(x = "Time (ms)", y = "Pitch (Hz)") +
+  labs(title ="ADS")
+
+cowplot::plot_grid(cds_plot, ads_plot)
+```
+
 
 ## Fixed frame temporal segmentation
 
