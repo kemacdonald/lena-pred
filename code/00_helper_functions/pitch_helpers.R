@@ -3,11 +3,10 @@
 # filters time series to first voiced sample
 # re-zeroes the the time variable
 filter_first_voiced <- function(df) {
-  min_cut_point <- df %>% 
-    filter(!is.na(pitch)) %>% 
-    pull(time) %>% min()
+  min_cut_point <- df %>% filter(!is.na(pitch)) %>% pull(time) %>% min()
+  max_cut_point <- df %>% filter(!is.na(pitch)) %>%  pull(time) %>% max()
   
-  df %>% filter(time >= min_cut_point) %>% mutate(time = time - min_cut_point)
+  df %>% filter(time >= min_cut_point & time <= max_cut_point) %>% mutate(time = time - min_cut_point)
 }
 
 
@@ -68,6 +67,7 @@ get_pitch_contour <- function(file_path, ...) {
   analyze(x = file_path,
           pitchFloor = lowest_pitch,
           pitchCeiling = highest_pitch,
+          silence = silence_min,
           plot = FALSE) %>% 
     mutate(dataset = file_path_spl[10],
            seg_id = str_remove(file_path_spl[11], '.wav')) %>% 

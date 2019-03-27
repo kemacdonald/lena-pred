@@ -18,12 +18,6 @@ The data processing pipeline is:
 * Use k-means clustering algorithm to classify F0 shapes into categories
 * Vectorize the sequence data for training LSTM 
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, warning = F, message = F,
-                      fig.align = 'center', fig.width = 10, 
-                      fig.asp = 0.7, out.width = "80%")
-```
-
 ```{r libraries}
 library(soundgen); library(magrittr); library(tidyverse)
 source(here::here("code/00_helper_functions/pitch_helpers.R"))
@@ -33,16 +27,18 @@ source(here::here("code/00_helper_functions/plot_theme.R"))
 ## Extract pitch contours
 
 ```{r globals pitch extraction}
-path_to_wav <- "data/01_raw_data/pilot-segments"
+#path_to_wav <- "data/01_raw_data/pilot-segments"
+path_to_wav <- "data/02_processed_data/pilot-segments-norm"
 
-min_prop_voiced <- 0.2 # min propotion of voiced samples (need to ask AW about this number)
+min_prop_voiced <- 0.1 # min proportion of voiced samples (need to ask AW about this number)
 
 lowest_pitch <- 75     # clips extreme pitch estimates
-highest_pitch <- 1000  # clips extreme pitch estimates 
+highest_pitch <- 600  # clips extreme pitch estimates 
 time_bin_width <- 100  # in ms
+silence_min <- 0.02     # lower bound of silence in recording, silent frames are not analyzed for pitch
 
-frac_points_loess <- 0.15  # what percentage point for fitting loess interpoloation curves
-preds_sample_rate <- 10    # how many frequently to sample from fitted loess (ms)
+frac_points_loess <- 02  # what percentage point for fitting loess interpoloation curves
+preds_sample_rate <- 25    # how many frequently to sample from fitted loess (ms)
 
 degree_poly <- 2 # degree of polynomial curve fit to the temporal segments
 n_q_shapes <- 8 # number of q-shapes for k-means clustering step
@@ -60,10 +56,8 @@ files_to_analyze <- here::here(path_to_wav, files_to_analyze)
 Extract pitch contours for each .wav file
 
 ```{r}
-d <- files_to_analyze[12] %>% map_df(get_pitch_contour, lowest_pitch, highest_pitch)
+d <- files_to_analyze %>% map_df(get_pitch_contour, lowest_pitch, highest_pitch, silence_min)
 ```
-
-TODO: figure out why we aren't getting good pitch estimates from the ManyBabies segements. 
 
 Remove segements with fewer than XXXX pitch estimates.
 
@@ -74,7 +68,7 @@ d %>%
   group_by(seg_id, voiced) %>% 
   mutate(n_voiced = n(),
          prop_voiced = n_voiced / n_samples) %>% 
-  distinct(seg_id, prop_voiced) -> blah
+  distinct(seg_id, prop_voiced) 
 ```
 
 Find first voiced region and re-zero the time variable based on this point. 
@@ -90,24 +84,25 @@ d %>%
 ```{r interpolate}
 d %>% 
   split(.$seg_id) %>% 
-  map_df(interpolate_loess, frac_points_loess, sample_rate = preds_sample_rate) %>% 
-  filter(!is.na(pitch_interpolated)) -> d
+  map_df(interpolate_loess, 0.2, sample_rate = preds_sample_rate) %>% 
+  filter(!is.na(pitch_interpolated)) -> d_interp
 ```
 
 ## Log transform and Z-score
 
 ```{r}
-d %>% mutate(log_pitch = log(pitch_interpolated), z_log_pitch = scale(log_pitch)) -> d
+d_interp %>% mutate(log_pitch = log(pitch_interpolated), z_log_pitch = scale(log_pitch)) -> d_interp
 ```
 
+Some sanity check plots
 
 ```{r}
-# plot one interpolated pitch contour
-d %>% 
+# plot interpolated pitch contour
+d_interp %>% 
   ggplot(aes(x = time, y = z_log_pitch)) +
-  geom_point(color = "purple") +
-  labs(x = "Time (ms)", y = "Pitch (Hz)") +
-  facet_wrap(~seg_id)
+  geom_line(color = "purple", size = 1) +
+  labs(x = "Time (ms)", y = "Z Log Pitch") +
+  facet_wrap(~seg_id, scales = "free_x")
 ```
 
 ## Temporal segmentation 
