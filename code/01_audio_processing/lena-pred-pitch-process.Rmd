@@ -27,15 +27,14 @@ source(here::here("code/00_helper_functions/plot_theme.R"))
 ## Extract pitch contours
 
 ```{r globals pitch extraction}
-#path_to_wav <- "data/01_raw_data/pilot-segments"
 path_to_wav <- "data/02_processed_data/pilot-segments-norm"
 
 min_prop_voiced <- 0.1 # min proportion of voiced samples (need to ask AW about this number)
 
 lowest_pitch <- 75     # clips extreme pitch estimates
-highest_pitch <- 1000  # clips extreme pitch estimates 
+highest_pitch <- 750  # clips extreme pitch estimates 
 time_bin_width <- 100  # in ms
-silence_min <- 0.02    # lower bound of silence in recording, silent frames are not analyzed for pitch
+silence_min <- 0.01    # lower bound of silence in recording, silent frames are not analyzed for pitch
 
 frac_points_loess <- 0.2   # what percentage point for fitting loess interpoloation curves
 preds_sample_rate <- 10    # how many frequently to sample from fitted loess (ms)
@@ -58,10 +57,13 @@ files_to_analyze <- here::here(path_to_wav, files_to_analyze)
 Extract pitch contours for each .wav file
 
 ```{r}
+start_time <- Sys.time()
 d <- files_to_analyze %>% map_df(get_pitch_contour, lowest_pitch, highest_pitch, silence_min)
+end_time <- Sys.time()
+end_time - start_time
 ```
 
-Remove segements with fewer than 10% valid pitch estimates.
+Check if there are segments with very few pitch estimates.
 
 ```{r}
 d %>% 
@@ -70,10 +72,12 @@ d %>%
   group_by(seg_id, voiced) %>% 
   mutate(n_voiced = n(),
          prop_voiced = n_voiced / n_samples) %>% 
-  distinct(seg_id, prop_voiced) 
+  distinct(seg_id, prop_voiced) %>% 
+  filter(voiced == T) %>% 
+  pull(prop_voiced) %>% qplot()
 ```
 
-Find first voiced region and re-zero the time variable based on this point. 
+Find first and last voiced region and remove time values outside. This ensures that we aren't extrapolating outside the range of the data with our interpolation step.
 
 ```{r}
 d %>% 
@@ -81,7 +85,38 @@ d %>%
   map_df(filter_first_voiced) -> d
 ```
 
-## Interpolate pitch contour over unvoiced regions
+Plot sample of pitch contour estimates
+
+```{r}
+segs_to_plot <- d$seg_id %>% unique() %>% sample(10)
+
+d %>% 
+  filter(seg_id %in% segs_to_plot) %>% 
+  ggplot(aes(x = time, y = pitch, color = dataset)) +
+  geom_line(size = 1) +
+  ggthemes::scale_color_ptol() +
+  labs(x = "Time (ms)", y = "Pitch") +
+  facet_wrap(dataset~seg_id, scales = "free_x")
+```
+
+## Interpolate pitch contour over unvoiced regions between pitch estimates
+
+TODO: remove segments with very few pitch estimates. Fewer than 600 ms
+
+```{r}
+
+```
+
+
+```{r}
+blah <- d %>% filter(seg_id == "Baby 1810_1148.7826767146175")
+
+t_to_predict <- seq(0, max(blah$time), by = 10)
+
+preds <- loess(pitch ~ time, data = blah, span = 0.2) %>% 
+    predict(t_to_predict) 
+```
+
 
 ```{r interpolate}
 d %>% 
@@ -97,54 +132,47 @@ d_interp %>% mutate(log_pitch = log(pitch_interpolated),
                     z_log_pitch = scale(log_pitch)) -> d_interp
 ```
 
-Sanityh check plot for interpolated and normalized pitch contours.
+Sanity check plot for interpolated and normalized pitch contours.
 
 ```{r}
 d_interp %>% 
+  filter(seg_id %in% segs_to_plot) %>% 
   ggplot(aes(x = time, y = z_log_pitch)) +
   geom_line(color = "purple", size = 1) +
   labs(x = "Time (ms)", y = "Z Log Pitch") +
-  facet_wrap(~seg_id, scales = "free_x")
+  facet_wrap(~seg_id, scales = "free_x", ncol = 3)
+```
+
+Plot distribution of pitch estimates
+
+```{r}
+d_interp %>% pull(z_log_pitch) %>% qplot()
 ```
 
 ## Temporal segmentation 
 
 ```{r}
 d_interp %>% 
-  group_by(seg_id) %>% 
-  mutate(time_bin = cut_width(time, 
-                              width = time_bin_width,
-                              closed = 'left',
-                              boundary = 0)) -> d_interp
+  create_time_bins(bin_width = time_bin_width) %>% 
+  get_time_in_bin() %>% 
+  relabel_bins -> d_interp
+```
 
-# re-zero time wrt to this 100 ms time bin
-d_interp %>% 
-  group_by(seg_id, time_bin) %>% 
-  mutate(time_wrt_bin = seq_along(time_bin) * preds_sample_rate,
-         n_bins_in_seg = n()) -> d_interp
+Remove 100 ms segments with fewer than the min number of samples in each bin.
 
-# create more meaningful bin labels
-d_interp %>% 
-  distinct(seg_id, time_bin) %>% 
-  group_by(seg_id) %>% 
-  mutate(time_bin_num = seq_along(time_bin)) %>% 
-  left_join(d_interp, .) -> d_interp
-
-# remove 100 ms segments with fewer than 10 samples
+```{r}
 d_interp %>% filter(n_bins_in_seg == min_samples_bin) -> d_interp
 ```
 
 Sanity check plot for temporal segmentation step
 
 ```{r}
-seg_to_plot <- d_interp$seg_id %>% unique() %>% sample(1)
-
 d_interp %>% 
-  filter(seg_id == seg_to_plot) %>% 
+  filter(seg_id %in% segs_to_plot) %>% 
   ggplot(aes(x = time, y = z_log_pitch, color = time_bin)) +
-  geom_point() +
+  #geom_point(size = 1) +
+  geom_line(size = 1.5) +
   guides(color = F) +
-  scale_x_continuous(breaks = seq(0, nrow(d_interp), by = 100)) +
   labs(x = "Time (ms)", y = "Normalized Log(Pitch)")  +
   facet_wrap(~seg_id) 
 ```
@@ -155,6 +183,8 @@ Input is time and normalized log transformed pitch values. Output is the coeffic
 
 ```{r}
 d_interp %>% group_by(seg_id, time_bin_num) %>% nest() -> d_by_bin
+
+# fit polynomial 
 d_by_bin %>% mutate(poly_coefs = map(data, fit_poly, degree_poly)) -> d_by_bin
 ```
 
@@ -171,9 +201,37 @@ Sanity check plot for the cluster assignments.
 
 ```{r}
 d_final %>% 
-  ggplot(aes(coef2, coef3, color = cluster)) +
-  geom_point(size = 3)
+  ggplot(aes(coef_quadratic, coef_linear, color = cluster)) +
+  geom_point(size = 3, alpha = 0.7)
 ```
+
+What's the distribution of cluster assignments?
+
+```{r}
+d_final$cluster %>% qplot()
+```
+
+
+Now let's sample from each cluster and plot the corresponding pitch shape.
+
+```{r}
+d_final %>% 
+  group_by(cluster) %>% 
+  sample_frac(0.2) %>% 
+  group_by(cluster, time_bin_num) %>% 
+  nest() -> d_clusters
+
+d_clusters %>% mutate(poly_preds = map(data, predict_poly)) -> d_clusters
+
+d_clusters %>% 
+  unnest(poly_preds) %>% 
+  ggplot(aes(x = time_ms, y = pred, group = time_bin_num)) +
+  geom_line(alpha = 0.5, size = 1) +
+  facet_wrap(~cluster, scales = "free_y") +
+  lims(y = c(-3, 3))
+```
+
+Hmm, some of the polynomials predict really extreme values. Not sure this is desirable behavior for parametric description of curvature within 100ms segment. 
 
 Sanity check these poly coefs by plotting the 2nd order polynomial fit with the interpolated pitch contour. 
 
@@ -190,14 +248,16 @@ d_by_bin %>%
   group_by(seg_id) %>% 
   mutate(n_samples = n(),
          x = seq(0, unique(n_samples) - 1, by = 1)) %>% 
+  filter(seg_id %in% segs_to_plot) %>% 
   ggplot(aes(x, pred)) +
-  geom_line(size = 1, color = "purple") +
-  geom_line(data = d_interp, aes(x, z_log_pitch), size = 1) +
+  geom_line(size = 2, color = "purple") +
+  geom_line(data = filter(d_interp, seg_id %in% segs_to_plot), aes(x, z_log_pitch), size = 2.5,
+            lty = "dashed") +
   guides(color = F) +
   facet_wrap(~seg_id)
 ```
 
-Hmm, there's a weird right-shift thing happening here... But the shapes look good.
+Hmm, is it weird to reproduce the pitch contour exactly? Dotted black line is right on top of purple line.
 
 ## Save the cluster assignments for training the LSTM
 

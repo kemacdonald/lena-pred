@@ -1,7 +1,7 @@
 library(ggplot2)
 
 # generating new theme
-kyle_theme <- function(base_size = 20,
+kyle_theme <- function(base_size = 16,
                       base_family = "",
                       base_line_size = base_size / 170,
                       base_rect_size = base_size / 170){
@@ -12,11 +12,11 @@ kyle_theme <- function(base_size = 20,
       plot.title = element_text(
         color = rgb(25, 43, 65, maxColorValue = 255), 
         face = "bold",
-        size = 16,
+        size = 14,
         hjust = 0),
       plot.subtitle = element_text(
         color = rgb(25, 43, 65, maxColorValue = 255), 
-        size = 14,
+        size = 12,
         hjust = 0,
         vjust = 1),
       panel.border = element_rect(fill = NA, colour = "grey20"),
