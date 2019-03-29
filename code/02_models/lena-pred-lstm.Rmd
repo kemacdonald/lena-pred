@@ -1,0 +1,196 @@
+---
+title: "LSTM implementation"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
+```
+
+## Set up LSTM language model
+
+Neural language models are designed to learn how to predict the next word in a sequence given the prior context. In our case, words are 
+
+The implementation of the LSTM below is borrowed from this [tutorial] (https://keras.rstudio.com/articles/examples/lstm_text_generation.html) where they implement a character-level neural language model. 
+
+In that post they suggest using a GPU for training the LSTM and suggest that you want to have at least ~100k characters, or for us pitch contour shapes, with 1M being better. 
+
+```{r}
+library(keras)
+library(readr)
+library(stringr)
+library(purrr)
+library(tokenizers)
+```
+
+# Parameters and read data
+
+```{r}
+maxlen <- 40 # the max length of the sequence
+
+# Retrieve text 
+path <- get_file(
+  'nietzsche.txt', 
+  origin='https://s3.amazonaws.com/text-datasets/nietzsche.txt'
+  )
+```
+
+# Load, collapse, and tokenize text
+
+```{r}
+text <- read_lines(path) %>%
+  str_to_lower() %>%
+  str_c(collapse = "\n") %>%
+  tokenize_characters(strip_non_alphanum = FALSE, simplify = TRUE)
+
+# get the unique characters in the text
+chars <- text %>%
+  unique() %>%
+  sort()
+
+# Cut the text in semi-redundant sequences of maxlen characters
+dataset <- map(
+  seq(1, length(text) - maxlen - 1, by = 3), 
+  ~list(sentence = text[.x:(.x + maxlen - 1)], 
+        next_char = text[.x + maxlen])
+  )
+
+dataset <- transpose(dataset)
+
+# Vectorization
+x <- array(0, dim = c(length(dataset$sentence), maxlen, length(chars)))
+y <- array(0, dim = c(length(dataset$sentence), length(chars)))
+
+for(i in 1:length(dataset$sentence)){
+  
+  x[i,,] <- sapply(chars, function(x){
+    as.integer(x == dataset$sentence[[i]])
+  })
+  
+  y[i,] <- as.integer(chars == dataset$next_char[[i]])
+  
+}
+```
+
+# Model Definition 
+
+```{r}
+model <- keras_model_sequential()
+
+model %>%
+  layer_lstm(128, input_shape = c(maxlen, length(chars))) %>%
+  layer_dense(length(chars)) %>%
+  layer_activation("softmax")
+
+optimizer <- optimizer_rmsprop(lr = 0.01)
+
+model %>% compile(
+  loss = "categorical_crossentropy", 
+  optimizer = optimizer
+)
+```
+
+# Training 
+
+```{r}
+sample_mod <- function(preds, temperature = 1){
+  preds <- log(preds)/temperature
+  exp_preds <- exp(preds)
+  preds <- exp_preds/sum(exp(preds))
+  
+  rmultinom(1, 1, preds) %>% 
+    as.integer() %>%
+    which.max()
+}
+
+on_epoch_end <- function(epoch, logs) {
+  
+  cat(sprintf("epoch: %02d ---------------\n\n", epoch))
+  
+  for(diversity in c(0.2, 0.5, 1, 1.2)){
+    
+    cat(sprintf("diversity: %f ---------------\n\n", diversity))
+    
+    start_index <- sample(1:(length(text) - maxlen), size = 1) # randomly sample a charcter for start index
+    sentence <- text[start_index:(start_index + maxlen - 1)]
+    generated <- ""
+    
+    for(i in 1:400){
+      
+      x <- sapply(chars, function(x){
+        as.integer(x == sentence)
+      })
+      x <- array_reshape(x, c(1, dim(x)))
+      
+      preds <- predict(model, x)
+      next_index <- sample_mod(preds, diversity)
+      next_char <- chars[next_index]
+      
+      generated <- str_c(generated, next_char, collapse = "")
+      sentence <- c(sentence[-1], next_char)
+      
+    }
+    
+    cat(generated)
+    cat("\n\n")
+    
+  }
+}
+
+print_callback <- callback_lambda(on_epoch_end = on_epoch_end)
+```
+
+Fit the model
+
+```{r}
+model %>% fit(
+  x, y,
+  batch_size = 128,
+  epochs = 1,
+  callbacks = print_callback
+)
+```
+
+# Make predictions 
+
+Here we feed the model some a sequence of text and ask it to predict the next character. Concretely, it generates a probability distribution over the set of possible next characters. 
+
+In this chunk, we just predict a single character:
+
+```{r}
+start_index <- sample(1:(length(text) - maxlen), size = 1) # randomly sample a charcter for start index
+sentence <- text[start_index:(start_index + maxlen - 1)]
+generated <- ""
+
+x <- sapply(chars, function(x){
+  as.integer(x == sentence)
+})
+
+x <- array_reshape(x, c(1, dim(x)))
+
+preds <- predict(model, x) # generate probability distribution over characters
+next_index <- sample_mod(preds, 0.2) # get the index to access the character dictionary
+next_char <- chars[next_index] # actually get the next character 
+
+
+generated <- str_c(generated, next_char, collapse = "")
+new_sentence <- c(sentence[-1], next_char)
+
+cat(sentence)
+cat(new_sentence)
+```
+
+# Evaluate the model
+
+If we had a held out test set, we could evaluate the quality of the model's predictions on known character sequences. 
+
+From Andrej Karpathy's blog:
+
+> At test time, we feed a character into the RNN and get a distribution over what characters are likely to come next. We sample from this distribution, and feed it right back in to get the next letter. Repeat this process and you’re sampling text! 
+
+```{r}
+
+```
+
+
+
