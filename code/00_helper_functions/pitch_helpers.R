@@ -1,4 +1,12 @@
-##### Pitch processing helper functions ------------
+##### Pitch processing helper functions 
+
+html_tag_audio <- function(file,
+                           type = "wav") {
+  htmltools::tags$audio(controls = NA,
+                        htmltools::tags$source(src = file,
+                                               type = glue::glue("audio/{type}",
+                                                                 type = type)))
+}
 
 # filters time series to first voiced sample
 # re-zeroes the the time variable
@@ -9,9 +17,7 @@ filter_first_voiced <- function(df) {
   df %>% filter(time >= min_cut_point & time <= max_cut_point) %>% mutate(time = time - min_cut_point)
 }
 
-
 interpolate_loess <- function(df, sample_rate, frac_points) {
-  print(df$seg_id %>% unique())
   
   t_to_predict <- seq(0, max(df$time), by = sample_rate)
   preds <- loess(pitch ~ time, data = df, 
@@ -20,6 +26,8 @@ interpolate_loess <- function(df, sample_rate, frac_points) {
   
   tibble(
     seg_id = df$seg_id[1],
+    dataset = df$dataset[1],
+    speech_register = df$speech_register[1],
     time = t_to_predict, 
     pitch_interpolated = preds
   ) 
@@ -96,7 +104,7 @@ predict_poly <- function(d) {
 
 
 ## function to process and extract pitch contour from .wav file
-# returns a data frame with the segment id, dataset, pitch values, and amplitude
+## returns a data frame with the segment id, dataset, pitch values, and amplitude
 get_pitch_contour <- function(file_path, ...) {
   file_path_spl <- str_split(file_path, "/", simplify = T)
   
@@ -106,6 +114,8 @@ get_pitch_contour <- function(file_path, ...) {
           silence = silence_min,
           plot = FALSE) %>% 
     mutate(dataset = file_path_spl[10],
-           seg_id = str_remove(file_path_spl[11], '.wav')) %>% 
-    select(dataset, seg_id, pitch, voiced, time, ampl) 
+           path_to_wav = file_path,
+           speech_register = file_path_spl[11], 
+           seg_id = str_remove(file_path_spl[12], '.wav')) %>% 
+    select(dataset, speech_register, seg_id, pitch, voiced, time, ampl, path_to_wav) 
 }
