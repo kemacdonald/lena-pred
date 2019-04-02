@@ -27,9 +27,10 @@ The data processing pipeline follows Rasanen et al. (2018):
 
 ```{r libraries, include = F}
 set.seed(12345)
-library(soundgen); library(tidyverse)
-source(here::here("code/00_helper_functions/pitch_helpers.R"))
-source(here::here("code/00_helper_functions/plot_theme.R"))
+library(soundgen); library(tidyverse); library(here)
+source(here("code/00_helper_functions/pitch_helpers.R"))
+source(here("code/00_helper_functions/lstm-helpers.R"))
+source(here("code/00_helper_functions/plot_theme.R"))
 ```
 
 ## Extract pitch contours
@@ -53,12 +54,12 @@ degree_poly <- 2 # degree of polynomial curve fit to the temporal segments
 n_q_shapes <- 8  # number of q-shapes for k-means clustering step
 
 # path to audio
-files_to_analyze <- list.files(here::here(path_to_wav), 
+files_to_analyze <- list.files(here(path_to_wav), 
                                pattern = "*.wav", 
                                recursive = T)
 
 # add the full path
-files_to_analyze <- here::here(path_to_wav, files_to_analyze)
+files_to_analyze <- here(path_to_wav, files_to_analyze)
 ```
 
 Extract pitch contours for each .wav file. We use our own `get_pitch_contour()` function, which gets mapped over each .wav file. 
@@ -194,7 +195,7 @@ Make a plot to sanity check the distributioin of cluster assignments.
 
 ```{r}
 d_final %>% 
-  ggplot(aes(coef_quadratic, coef_linear, color = cluster)) +
+  ggplot(aes(coef_quadratic, coef_linear, color = as_factor(cluster))) +
   geom_point(size = 3, alpha = 0.7) +
   ggthemes::scale_color_ptol() +
   facet_grid(dataset~ speech_register)
@@ -205,7 +206,7 @@ We can also sample coefs from each cluster and plot the corresponding polynomial
 ```{r plot pitch shapes}
 d_final %>% 
   group_by(cluster) %>% 
-  sample_frac(0.2) %>% 
+  sample_frac(0.1) %>% 
   group_by(cluster, time_bin_num) %>% 
   nest() -> d_clusters
 
@@ -215,8 +216,7 @@ d_clusters %>%
   unnest(poly_preds) %>% 
   ggplot(aes(x = time_ms, y = pred, group = time_bin_num)) +
   geom_line(alpha = 0.5, size = 1) +
-  facet_wrap(~cluster, scales = "free_y") +
-  lims(y = c(-3, 3))
+  facet_wrap(~cluster, scales = "free_y")
 ```
 
 Finally we check whether we can reconstruct the original pitch contour by plotting the 2nd order polynomial for each 100 ms time bin alongside the interpolated pitch contour. 
@@ -229,21 +229,31 @@ d_interp %>%
   mutate(n_samples = n(),
          x = seq(0, unique(n_samples) - 1, by = 1)) -> d_interp
 
-d_by_bin %>% 
+seg_idx <- 3 # control which segment to inspect
+
+orig <- d_interp %>% 
+  filter(seg_id %in% segs_to_plot$seg_id[seg_idx]) %>% 
+  ggplot(aes(x, z_log_pitch, color = speech_register)) +
+  geom_line(size = 1) +
+  guides(color = F) +
+  facet_wrap(~seg_id, scales = "free_x") +
+  theme(legend.position = 'top') +
+  ggthemes::scale_color_ptol() 
+
+segmented <- d_by_bin %>% 
   unnest(poly_preds) %>% 
   group_by(seg_id) %>% 
   mutate(n_samples = n(),
          x = seq(0, unique(n_samples) - 1, by = 1)) %>% 
-  filter(seg_id %in% segs_to_plot$seg_id) %>% 
+  filter(seg_id %in% segs_to_plot$seg_id[seg_idx]) %>% 
   ggplot(aes(x, pred, color = speech_register)) +
-  geom_line(size = 2) +
-  geom_line(data = filter(d_interp, seg_id %in% segs_to_plot$seg_id), 
-            aes(x, z_log_pitch), size = 2, color = 'black',
-            lty = "dashed") +
+  geom_line(size = 1) +
   guides(color = F) +
-  facet_wrap(dataset + speech_register~seg_id, scales = "free_x", ncol = 4) +
+  facet_wrap(~time_bin_num, scales = "free_x", ncol = 10) +
   theme(legend.position = 'top') +
   ggthemes::scale_color_ptol() 
+
+cowplot::plot_grid(orig, segmented, nrow = 2)
 ```
 
 Is it desirable to reproduce the pitch contour exactly? Dotted black line is right on top of pitch contour.
@@ -252,6 +262,21 @@ Is it desirable to reproduce the pitch contour exactly? Dotted black line is rig
 
 [TODO] Our final step iss to take the sequence of cluster assignments for each pitch contour and split it into into training, validation, and test sets for the LSTM modeling step. Intuitively, we want to generate "question and answer" sub-sequences where the question/input is the prior sequence of cluster assignments and the answer/target is the next cluster assignment in the sequence.
 
-```{r vectorize and save cluster sequences}
-fst::write_fst(d_final, here::here("data/03_summaries/lena-pred-poly-coefs.fst"))
+```{r}
+seq_max_len <- 10 
+skip <- 1 
+cluster_sequence <- d_final %>% pull(cluster)
+unique_clusters <- cluster_sequence %>% unique() %>% sort()
+cluster_dict <- unique_clusters %>% to_categorical()
+
+# generate the dataset 
+d_lstm <- generate_lstm_dataset(cluster_sequence, seq_max_len, skip)
+
+# one-hot encode the next cluster integers
+d_lstm$next_cluster_one_hot <- one_hot_encode(d_lstm$next_cluster, cluster_dict)
+```
+
+```{r save coefs and cluster sequences}
+fst::write_fst(d_final, here("data/03_summaries/lena-pred-poly-coefs.fst"))
+write_rds(d_lstm, here("data/03_summaries/lena-pred-lstm-seqs.rds"))
 ```

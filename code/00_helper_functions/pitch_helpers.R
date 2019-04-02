@@ -69,7 +69,7 @@ get_cluster_assignments <- function(df, k) {
   
   cl <- kmeans(coefs_mat, centers = k)
   
-  df %>% mutate(cluster = cl$cluster %>% as.factor()) 
+  df %>% mutate(cluster = cl$cluster) 
   
 }
 
