@@ -4,37 +4,54 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
+knitr::opts_chunk$set(echo = T, warning = F, message = F)
 ```
 
 ## Set up LSTM language model
 
 Neural language models are designed to learn how to predict the next word in a sequence given the prior context. In our case, words are cluster assignments for each 100-ms segment of pitch contours.
 
-The implementation of the LSTM below is borrowed from this [tutorial] (https://keras.rstudio.com/articles/examples/lstm_text_generation.html) where they implement a character-level neural language model. 
+This implementation of the LSTM below is borrowed from this [tutorial] (https://keras.rstudio.com/articles/examples/lstm_text_generation.html) where they implement a character-level neural language model. 
 
 ```{r libraries}
 library(keras); library(tfruns); library(cloudml)
 library(here); library(tidyverse)
+source(here("code/00_helper_functions/lstm-helpers.R"))
 read_path <- "data/03_summaries"
 ```
 
 ## Read data and set up parameters
 
 ```{r read data}
-# data
-d <- read_rds(here(read_path, "lena-pred-lstm-seqs.rds"))
-
-# globals
-n_clusters <- d$next_cluster %>% unique() %>% length()
-input_shape <- n_clusters + 1 # size of vocabulary
-output_dim <- 30 
-input_length <- d$prev_cluster_seq[[1]] %>% length()
+use_rasanen <- FALSE
 lstm_units <- 30
+lstm_output_dim <- 30
 
-# vectorize data
-x_in <- d$prev_cluster_seq %>% unlist() %>% matrix(ncol = input_length, byrow = TRUE)
-y_out <- d$next_cluster_one_hot %>% unlist() %>% matrix(ncol = n_clusters+1, byrow = TRUE)
+if (use_rasanen) {
+  d <- R.matlab::readMat(here(read_path, "rasanen_2018/lstm_traindata.mat"))
+  input_length <- 10
+  n_clusters <- 24
+  input_shape <- n_clusters + 1 # size of vocabulary + 1
+  
+  train_in <- d$train.in
+  train_out <- d$train.out
+  test_in <- d$test.in
+  test_out <- d$test.out
+  
+} else {
+  
+  d <- read_rds(here(read_path, "lena-pred-lstm-seqs.rds"))
+  unique_clusters <- d$train_data$next_cluster %>% unique() %>% unlist() %>% sort()
+  n_clusters <- length(unique_clusters)
+  input_shape <- length(unique_clusters) + 1 # size of vocabulary
+  input_length <- d$train_data$prev_cluster_seq[[1]] %>% length()
+  
+  # vectorize data
+  train_in <- vectorize_data(d$train_data, data_type = "input")
+  train_out <- vectorize_data(d$train_data, data_type = "output")
+  test_in <- vectorize_data(d$test_data, data_type = "input")
+  test_out <- vectorize_data(d$test_data, data_type = "output")
+}
 ```
 
 ## Model Definition 
@@ -45,16 +62,15 @@ model <- keras_model_sequential()
 model %>%
   layer_embedding(
     input_dim = input_shape, 
-    output_dim = output_dim, 
+    output_dim = lstm_output_dim, 
     input_length = input_length) %>% 
-  layer_lstm(units = lstm_units, input_shape = c(input_length, n_clusters+1)) %>%
-  layer_dense(n_clusters+1, activation = "softmax")
-
-optimizer <- optimizer_rmsprop(lr = 0.01)
+  layer_lstm(units = lstm_units, input_shape = c(input_length, input_shape)) %>%
+  layer_dense(n_clusters, activation = "softmax")
 
 model %>% compile(
   loss = "categorical_crossentropy", 
-  optimizer = optimizer
+  optimizer = 'rmsprop',
+  metrics = list('accuracy')
 )
 
 summary(model)
@@ -62,40 +78,57 @@ summary(model)
 
 ## Training 
 
-```{r}
-
-
-
+```{r training hyperparameters}
+early_stop <- callback_early_stopping(monitor = "val_loss", min_delta = 0.0001,
+                                      patience = 0, verbose = 0, mode = "auto")
+n_epochs <- 15
 ```
 
 Fit the model
 
 ```{r}
-early_stop <- callback_early_stopping(monitor = "val_loss", min_delta = 0.0001,
-                                      patience = 0, verbose = 0, mode = "auto")
-
-history <- model %>% 
-  fit(x_in, y_out,
+model %>% 
+  fit(train_in, train_out,
       batch_size = 10,
-      validation_split = 0.2,
+      epochs = n_epochs,
+      validation_split = 0.3, # ask Okko about validation split
       shuffle = TRUE,
-      return_sequences = TRUE,
-      epochs = 150,
-      callbacks = early_stop
-  )
+     # callbacks = early_stop
+  ) -> m_fit 
 ```
 
 Visualize the change in loss function during training.
 
 ```{r}
-plot(history)
-```
-
-## Make predictions 
-
-```{r}
-preds <- model %>% predict()
+plot(m_fit)
 ```
 
 ## Evaluate the model
 
+```{r}
+results <- model %>% evaluate(test_in, test_out)
+results
+```
+
+## Generate predictions 
+
+This chunk produces a probability distribution over each cluster for each test sequence.
+
+```{r}
+preds <- model %>% predict(test_in)
+```
+
+Save these predictions for later analysis:
+
+```{r}
+fix_names <- function(x) gsub("V", "class_", x)
+d_preds <- preds %>% as_tibble() %>% janitor::clean_names()
+
+colnames(d_preds) <- colnames(d_preds) %>% str_replace("v", "shape_")
+  
+d_preds %>% 
+  mutate(test_id = seq(1, nrow(.))) %>% 
+  select(test_id, everything()) -> d_preds
+
+write_csv(d_preds, here(read_path, "lena-pred-lstm-predictions.csv"))
+```

@@ -53,6 +53,9 @@ min_samples_bin <- 10  # min number of samples in a time bin
 degree_poly <- 2 # degree of polynomial curve fit to the temporal segments
 n_q_shapes <- 8  # number of q-shapes for k-means clustering step
 
+seq_max_len <- 10 # max length of the subs-sequences for training lstm
+skip <- 1  # how many steps to shift each training sub-sequence
+
 # path to audio
 files_to_analyze <- list.files(here(path_to_wav), 
                                pattern = "*.wav", 
@@ -229,7 +232,7 @@ d_interp %>%
   mutate(n_samples = n(),
          x = seq(0, unique(n_samples) - 1, by = 1)) -> d_interp
 
-seg_idx <- 3 # control which segment to inspect
+seg_idx <- 7 # control which segment to inspect
 
 orig <- d_interp %>% 
   filter(seg_id %in% segs_to_plot$seg_id[seg_idx]) %>% 
@@ -249,7 +252,7 @@ segmented <- d_by_bin %>%
   ggplot(aes(x, pred, color = speech_register)) +
   geom_line(size = 1) +
   guides(color = F) +
-  facet_wrap(~time_bin_num, scales = "free_x", ncol = 10) +
+  facet_wrap(~time_bin_num, scales = "free_x", nrow =1) +
   theme(legend.position = 'top') +
   ggthemes::scale_color_ptol() 
 
@@ -260,20 +263,17 @@ Is it desirable to reproduce the pitch contour exactly? Dotted black line is rig
 
 ## Vectorize the cluster assignments for training the LSTM
 
-[TODO] Our final step iss to take the sequence of cluster assignments for each pitch contour and split it into into training, validation, and test sets for the LSTM modeling step. Intuitively, we want to generate "question and answer" sub-sequences where the question/input is the prior sequence of cluster assignments and the answer/target is the next cluster assignment in the sequence.
+Our final step iss to take the sequence of cluster assignments for each pitch contour and split it into into training, validation, and test sets for the LSTM modeling step. Intuitively, we want to generate "question and answer" sub-sequences where the question/input is the prior sequence of cluster assignments and the answer/target is the next cluster assignment in the sequence.
 
-```{r}
-seq_max_len <- 10 
-skip <- 1 
+```{r generate lstm dataset}
 cluster_sequence <- d_final %>% pull(cluster)
 unique_clusters <- cluster_sequence %>% unique() %>% sort()
 cluster_dict <- unique_clusters %>% to_categorical()
 
-# generate the dataset 
-d_lstm <- generate_lstm_dataset(cluster_sequence, seq_max_len, skip)
-
-# one-hot encode the next cluster integers
-d_lstm$next_cluster_one_hot <- one_hot_encode(d_lstm$next_cluster, cluster_dict)
+# generate the dataset TODO: make this function handle training/test split 
+d_lstm <- generate_lstm_dataset(cluster_sequence, seq_max_len, skip, 
+                                train_split = 0.7,
+                                cluster_dict)
 ```
 
 ```{r save coefs and cluster sequences}
