@@ -5,7 +5,14 @@ dat_path <- "data/03_summaries/rasanen_2018"
 
 ## polynomial coefs
 
-d <- readMat(here(path, "results_19-Oct-2017 21_07_23_ManyBabies_usesyllables0_framesize_100.mat"))
+d <- readMat(here(dat_path, "results_19-Oct-2017 21_07_23_ManyBabies_usesyllables0_framesize_100.mat"))
+
+
+blah <- d$F0.raw[1] %>% unlist()
+
+blah <- d$F0.raw.orig[1] %>% unlist()
+
+qplot(seq(1, length(blah)), blah, geom = 'line')
 
 # check okko's coefs
 list_to_df <- function(list_item) {

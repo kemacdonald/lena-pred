@@ -92,7 +92,9 @@ d %>%
   ggplot(aes(x = time, y = pitch, color = speech_register)) +
   geom_line(size = 1) +
   labs(x = "Time (ms)", y = "Pitch") +
-  facet_wrap(dataset + speech_register~seg_id, scales = "free_x", ncol = 4) +
+  facet_wrap(dataset + speech_register~seg_id, 
+             scales = "free_x", 
+             ncol = 4) +
   theme(legend.position = 'top') +
   ggthemes::scale_color_ptol() 
 ```
@@ -268,7 +270,7 @@ Our final step iss to take the sequence of cluster assignments for each pitch co
 ```{r generate lstm dataset}
 cluster_sequence <- d_final %>% pull(cluster)
 unique_clusters <- cluster_sequence %>% unique() %>% sort()
-cluster_dict <- unique_clusters %>% to_categorical()
+cluster_dict <- unique_clusters %>% keras::to_categorical()
 
 # generate the dataset TODO: make this function handle training/test split 
 d_lstm <- generate_lstm_dataset(cluster_sequence, seq_max_len, skip, 
