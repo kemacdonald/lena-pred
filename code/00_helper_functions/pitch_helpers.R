@@ -1,7 +1,7 @@
 ##### Pitch processing helper functions 
 
-html_tag_audio <- function(file,
-                           type = "wav") {
+# embed audio player in html knit from Rmd
+html_tag_audio <- function(file, type = "wav") {
   htmltools::tags$audio(controls = NA,
                         htmltools::tags$source(src = file,
                                                type = glue::glue("audio/{type}",
@@ -17,6 +17,7 @@ filter_first_voiced <- function(df) {
   df %>% filter(time >= min_cut_point & time <= max_cut_point) %>% mutate(time = time - min_cut_point)
 }
 
+# use loess model to intrpolate between pitch estimates
 interpolate_loess <- function(df, sample_rate, frac_points) {
   
   t_to_predict <- seq(0, max(df$time), by = sample_rate)
@@ -51,13 +52,12 @@ get_time_in_bin <- function(d) {
            n_bins_in_seg = n())
 }
 
-
 # create more meaningful bin labels
 relabel_bins <- function(d) {
   d %>% 
     distinct(seg_id, time_bin) %>% 
     group_by(seg_id) %>% 
-    mutate(time_bin_num = seq_along(time_bin)) %>% 
+    mutate(time_bin_id = seq_along(time_bin)) %>% 
     left_join(d, .)
 }
 
@@ -69,8 +69,45 @@ get_cluster_assignments <- function(df, k) {
   
   cl <- kmeans(coefs_mat, centers = k)
   
-  df %>% mutate(cluster = cl$cluster - 1) 
+  list(centers = cl$centers %>% as_tibble(rownames = "cluster") %>% mutate(coef_intercept = 0),
+       d_clusters = df %>% mutate(cluster = cl$cluster - 1) 
+  )
+}
+
+add_utt_duration_segs <- function(d) {
+  d %>% 
+    group_by(seg_id) %>% 
+    mutate(n_segs_utt = n())
+}
+
+# plot the polynomial shapes indicated by the cluster centers after kmeans step
+# the sequence of these shapes is what the dnn is trying to learn
+plot_cluster_shapes <- function(df_centers) {
+  df_centers %>% 
+    group_by(cluster) %>% 
+    nest() %>% 
+    mutate(poly_preds = map(data, predict_poly)) %>% 
+    unnest(poly_preds) %>% 
+    ggplot(aes(x = time_ms, y = pred, color = cluster)) +
+    geom_line(alpha = 0.5, size = 1)  
+}
+
+# plot a sample of the pitch shapes based on the polynomial coefs returned in the
+# fitting of second degree polynomial to each 100ms time bin
+plot_sample_pitch_shapes <- function(d, frac_sample) {
+  d %>% 
+    group_by(cluster) %>% 
+    sample_frac(frac_sample) %>% 
+    group_by(cluster, time_bin_id) %>% 
+    nest() -> d_clusters
   
+  d_clusters %>% mutate(poly_preds = map(data, predict_poly)) -> d_clusters
+  
+  d_clusters %>% 
+    unnest(poly_preds) %>% 
+    ggplot(aes(x = time_ms, y = pred, group = time_bin_id)) +
+    geom_line(alpha = 0.5, size = 1) +
+    facet_wrap(~cluster, scales = "free_y")
 }
 
 ## fits polynomial function of time predicting interpolated, normalized log(pitch) values
@@ -92,6 +129,7 @@ fit_poly <- function(df, degree, fix = F, xfix, yfix) {
   )
 }
 
+## take second order poly coefs (intercept, linear, quadratic terms) and generates a shape
 predict_poly <- function(d) {
   p <- c(d$coef_quadratic, d$coef_linear, d$coef_intercept)
   
@@ -101,7 +139,51 @@ predict_poly <- function(d) {
   ) 
 }
 
+# takes a seg_id index, df with original pitch contour values, and df with pitch recongstruced from
+# separte 100ms second order polynomials and plots them alongside each other for sanity check
+plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
+  
+  orig <- df_raw %>%
+    filter(seg_id == seg_id_to_plot) %>%
+    group_by(seg_id) %>%
+    mutate(n_samples = n(),
+           x = seq(0, unique(n_samples) - 1, by = 1)) %>%
+    ggplot(aes(time, z_log_pitch)) +
+    geom_line(size = 1, color = "#756bb1") +
+    guides(fill = F) +
+    facet_wrap(~seg_id, scales = "free_x") +
+    theme(legend.position = 'top') 
+  
+  df_preds_expanded <- df_preds %>%
+    filter(seg_id == seg_id_to_plot) %>%
+    unnest(poly_preds) %>%
+    group_by(seg_id) %>%
+    mutate(n_samples = n(),
+           x = seq(0, unique(n_samples) - 1, by = 1))
 
+  df_cluster_labels <- df_preds_expanded %>%
+    select(seg_id, time_ms, pred, time_bin_id, cluster) %>%
+    mutate(pred = min(pred) + 0.3,
+           time_ms = max(time_ms) * 0.2)
+  
+  segmented <-  df_preds_expanded %>%
+    ggplot(aes(time_ms, pred)) +
+    geom_line(size = 1, color = "#756bb1") +
+    guides(fill = F) +
+    geom_label(data = df_cluster_labels,
+               aes(time_ms, pred, label = cluster, 
+                   fill = as_factor(cluster))) +
+    facet_wrap(~time_bin_id, scales = "free_x", nrow =1) +
+    theme(legend.position = 'top',
+          axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank()
+    ) +
+    ggthemes::scale_fill_ptol()
+  
+  cowplot::plot_grid(orig, segmented, nrow = 2)
+  
+}
 
 ## function to process and extract pitch contour from .wav file
 ## returns a data frame with the segment id, dataset, pitch values, and amplitude

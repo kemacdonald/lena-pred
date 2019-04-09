@@ -7,8 +7,8 @@ output:
 
 ```{r, include = F}
 knitr::opts_chunk$set(echo = T, warning = F, message = F, cache = T,
-                      fig.asp = 0.8, fig.width = 8,
-                      fig.align = 'center', out.width = "70%")
+                      fig.asp = 0.8, fig.width = 7,
+                      fig.align = 'center', out.width = "80%")
 ```
 
 ## Setup and Overview
@@ -26,7 +26,6 @@ The data processing pipeline follows Rasanen et al. (2018):
 * Vectorize the sequence data for training LSTM 
 
 ```{r libraries, include = F}
-set.seed(12345)
 library(soundgen); library(tidyverse); library(here)
 source(here("code/00_helper_functions/pitch_helpers.R"))
 source(here("code/00_helper_functions/lstm-helpers.R"))
@@ -36,6 +35,8 @@ source(here("code/00_helper_functions/plot_theme.R"))
 ## Extract pitch contours
 
 ```{r globals pitch extraction}
+set.seed(12345)
+
 path_to_wav <- "data/02_processed_data/pilot-segments-norm"
 
 min_prop_voiced <- 0.1 # min proportion of voiced samples (need to ask AW about this number)
@@ -53,8 +54,10 @@ min_samples_bin <- 10  # min number of samples in a time bin
 degree_poly <- 2 # degree of polynomial curve fit to the temporal segments
 n_q_shapes <- 8  # number of q-shapes for k-means clustering step
 
-seq_max_len <- 10 # max length of the subs-sequences for training lstm
-skip <- 1  # how many steps to shift each training sub-sequence
+seq_max_len <- 10     # max length of the subs-sequences for training lstm
+skip_val <- 1         # how many steps to shift each training sub-sequence
+prop_train <- 0.9     # prop of uttereances to use for training vs. test
+prop_train_cds <- 0.5 # prop of CDS utterances in th training dataseet
 
 # path to audio
 files_to_analyze <- list.files(here(path_to_wav), 
@@ -79,7 +82,7 @@ d %>%
   map_df(filter_first_voiced) -> d
 ```
 
-Plot a sample of eight pitch contours, four from each dataset and and two from each speech register.
+Plot a sample of eight pitch contours, four from each dataset and and speech register.
 
 ```{r plot sample pitch contours}
 segs_to_plot <- d %>% 
@@ -91,10 +94,11 @@ d %>%
   filter(seg_id %in% segs_to_plot$seg_id) %>% 
   ggplot(aes(x = time, y = pitch, color = speech_register)) +
   geom_line(size = 1) +
-  labs(x = "Time (ms)", y = "Pitch") +
+  labs(x = "Time (ms)", y = "Pitch ") +
   facet_wrap(dataset + speech_register~seg_id, 
-             scales = "free_x", 
-             ncol = 4) +
+             #scales = "free_x", 
+             ncol = 4
+             ) +
   theme(legend.position = 'top') +
   ggthemes::scale_color_ptol() 
 ```
@@ -127,7 +131,7 @@ d_interp %>% mutate(log_pitch = log(pitch_interpolated),
                     z_log_pitch = scale(log_pitch)) -> d_interp
 ```
 
-Let's plot the originial pitch estimates (points) with our interpolated pitch contours (lines) to sanity check the interpolation step. 
+Let's plot the originial pitch estimates (points) with our interpolated pitch contours (black lines) to sanity check the interpolation step. 
 
 ```{r}
 d_interp %>% 
@@ -135,18 +139,22 @@ d_interp %>%
   ggplot(aes(x = time, y = pitch_interpolated)) +
   geom_line(size = 1, color = "grey20") +
   geom_point(data = filter(d, seg_id %in% segs_to_plot$seg_id), 
-             aes(time, pitch, color = dataset), 
+             aes(time, pitch, color = speech_register), 
              size = 2, 
              alpha = 0.6) +
   labs(x = "Time (ms)", y = "Pitch") +
-  facet_wrap(dataset + speech_register~seg_id, scales = "free_x", ncol = 4) +
+  facet_wrap(dataset + speech_register~seg_id, 
+             #scales = "free_x", 
+             ncol = 4) +
   theme(legend.position = 'top') +
   ggthemes::scale_color_ptol() 
 ```
 
-These curves look pretty reasonable to me, but I think this interpolation is different from Rasanen et al. (2018).
+These curves look reasonable to me, but the `span` parameter, which controls the wiggliness of the loess, is a free parameter that we should experiment with.
 
 ### Temporal segmentation 
+
+Divide each audio clip into fixed frame 100ms segments.
 
 ```{r create time bins}
 d_interp %>% 
@@ -172,7 +180,7 @@ d_interp %>%
   facet_wrap(~seg_id) 
 ```
 
-Looks like the temporal segmentation step is working. 
+From the plot, it looks like the temporal segmentation step is working. 
 
 ### Fit second-order polynomial in each time bin
 
@@ -180,105 +188,82 @@ We pass the time and normalized log transformed pitch values aand get out the co
 
 ```{r fit polynomial to time bins}
 d_interp %>% 
-  group_by(seg_id, dataset, speech_register, time_bin_num) %>% 
+  group_by(seg_id, dataset, speech_register, time_bin_id) %>% 
   nest() -> d_by_bin
 
-# fit polynomial 
-d_by_bin %>% mutate(poly_coefs = map(data, fit_poly, degree_poly)) -> d_by_bin
+# fit polynomial and make predictions based on those fits
+d_by_bin %>% 
+  mutate(poly_coefs = map(data, fit_poly, degree_poly)) %>% 
+  mutate(poly_preds = map(poly_coefs, predict_poly)) -> d_by_bin
 ```
 
 ### K-means clustering on poly coefs
 
-We pass a 2 x 2 matrix of coefficient values for each 100 ms segment of the pitch contour and get back  a cluster assignment for each 100 ms segment.
+We pass a 2 x 2 matrix of coefficient values for each 100 ms segment of the pitch contour and get back  a cluster assignment for each segment.
 
 ```{r get clusters}
 d_coefs <- unnest(d_by_bin, poly_coefs, .drop = T) 
-d_coefs %>% get_cluster_assignments(k = n_q_shapes) -> d_final 
+d_coefs %>% get_cluster_assignments(k = n_q_shapes) -> d_final
 ```
 
-Make a plot to sanity check the distributioin of cluster assignments. 
+We can plot the distribution of cluster assignments for each dataset. 
 
 ```{r}
-d_final %>% 
+d_final$d_clusters %>% 
   ggplot(aes(coef_quadratic, coef_linear, color = as_factor(cluster))) +
   geom_point(size = 3, alpha = 0.7) +
   ggthemes::scale_color_ptol() +
   facet_grid(dataset~ speech_register)
 ```
 
-We can also sample coefs from each cluster and plot the corresponding polynomial shape.
+Plot the corresponding polynomial shape for the center of each cluster. These are the pitch shapes that the DNN will try to learn.
 
-```{r plot pitch shapes}
-d_final %>% 
-  group_by(cluster) %>% 
-  sample_frac(0.1) %>% 
-  group_by(cluster, time_bin_num) %>% 
-  nest() -> d_clusters
+```{r}
+plot_cluster_shapes(d_final$centers)
+```
 
-d_clusters %>% mutate(poly_preds = map(data, predict_poly)) -> d_clusters
-
-d_clusters %>% 
-  unnest(poly_preds) %>% 
-  ggplot(aes(x = time_ms, y = pred, group = time_bin_num)) +
-  geom_line(alpha = 0.5, size = 1) +
-  facet_wrap(~cluster, scales = "free_y")
+```{r plot pitch shapes, include = F}
+plot_sample_pitch_shapes(d_final$d_clusters, frac_sample = 0.1)
 ```
 
 Finally we check whether we can reconstruct the original pitch contour by plotting the 2nd order polynomial for each 100 ms time bin alongside the interpolated pitch contour. 
 
-```{r plot reconstructed pitch contour}
-d_by_bin %>% mutate(poly_preds = map(poly_coefs, predict_poly)) -> d_by_bin
+```{r plot reconstructed pitch contour, out.width="95%"}
+# add cluster assignments to display on plot
+d_by_bin %>% left_join(select(d_final$d_clusters, seg_id, time_bin_id, cluster)) -> d_by_bin
 
-d_interp %>% 
-  group_by(seg_id) %>% 
-  mutate(n_samples = n(),
-         x = seq(0, unique(n_samples) - 1, by = 1)) -> d_interp
-
-seg_idx <- 7 # control which segment to inspect
-
-orig <- d_interp %>% 
-  filter(seg_id %in% segs_to_plot$seg_id[seg_idx]) %>% 
-  ggplot(aes(x, z_log_pitch, color = speech_register)) +
-  geom_line(size = 1) +
-  guides(color = F) +
-  facet_wrap(~seg_id, scales = "free_x") +
-  theme(legend.position = 'top') +
-  ggthemes::scale_color_ptol() 
-
-segmented <- d_by_bin %>% 
-  unnest(poly_preds) %>% 
-  group_by(seg_id) %>% 
-  mutate(n_samples = n(),
-         x = seq(0, unique(n_samples) - 1, by = 1)) %>% 
-  filter(seg_id %in% segs_to_plot$seg_id[seg_idx]) %>% 
-  ggplot(aes(x, pred, color = speech_register)) +
-  geom_line(size = 1) +
-  guides(color = F) +
-  facet_wrap(~time_bin_num, scales = "free_x", nrow =1) +
-  theme(legend.position = 'top') +
-  ggthemes::scale_color_ptol() 
-
-cowplot::plot_grid(orig, segmented, nrow = 2)
+# plot
+seg_id_to_plot <- "B-01_06_1167_4_15_fids" 
+plot_reconstructed_pitch(seg_id_to_plot, df_raw = d_interp, df_preds = d_by_bin) 
 ```
-
-Is it desirable to reproduce the pitch contour exactly? Dotted black line is right on top of pitch contour.
 
 ## Vectorize the cluster assignments for training the LSTM
 
-Our final step iss to take the sequence of cluster assignments for each pitch contour and split it into into training, validation, and test sets for the LSTM modeling step. Intuitively, we want to generate "question and answer" sub-sequences where the question/input is the prior sequence of cluster assignments and the answer/target is the next cluster assignment in the sequence.
+Our final step is to take the sequence of cluster assignments for each pitch contour and split it into into training, validation, and test sets for the LSTM modeling step. Intuitively, we want to generate "question and answer" sub-sequences where the question/input is the prior sequence of pitch shapes and the answer/target is the next pitch shape in the sequence.
 
-```{r generate lstm dataset}
-cluster_sequence <- d_final %>% pull(cluster)
-unique_clusters <- cluster_sequence %>% unique() %>% sort()
-cluster_dict <- unique_clusters %>% keras::to_categorical()
+First, I'm adding the number of segments (q-shapes in each clip), which will be useful for reconstructing the utterances from the training/test sequences)
 
-# generate the dataset TODO: make this function handle training/test split 
-d_lstm <- generate_lstm_dataset(cluster_sequence, seq_max_len, skip, 
-                                train_split = 0.7,
-                                cluster_dict)
+```{r}
+add_utt_duration_segs(d_final$d_clusters) -> d_final$d_clusters
 ```
 
-```{r save coefs and cluster sequences}
-fst::write_fst(d_final, here("data/03_summaries/lena-pred-poly-coefs.fst"))
-write_rds(d_lstm, here("data/03_summaries/lena-pred-lstm-seqs.rds"))
+Now we create the dataset. We want to be able to control the proportion of data used for training. We also want to be able to do experiments with the proportion of:
+
+  * ADS/CDS utterance types 
+  * male/female
+  * speaker (caregiver vs. not caregiver) [TODO]
+  
+To do this, we add the relevant knobs to our dataset generator function.
+
+```{r generate lstm dataset}
+d_lstm <- generate_lstm_dataset(d_final$d_clusters, 
+                                max_seq_len = seq_max_len, 
+                                skip = skip_val,
+                                train_test_split = prop_train,
+                                prop_cds = prop_train_cds)
+
+# save coefs and cluster sequences
+fst::write_fst(d_final$centers, here("data/03_summaries/lena-pred-kmeans-centers.fst"))
+fst::write_fst(d_final$d_clusters, here("data/03_summaries/lena-pred-poly-coefs.fst"))
+write_rds(d_lstm, here("data/03_summaries/lena-pred-lstm-train-test.rds"))
 ```

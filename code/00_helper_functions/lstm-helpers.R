@@ -1,29 +1,53 @@
 ######## LSTM helpers
 
-generate_lstm_dataset <- function(input_seq, max_seq_len, skip, train_split, cluster_dict) {
-  split_idx <- as.integer(length(input_seq) * train_split)
-  train_seq <- input_seq[1:split_idx]
-  test_seq <- input_seq[(split_idx + 1):length(input_seq)]
+generate_lstm_dataset <- function(d, 
+                                  max_seq_len, 
+                                  skip, 
+                                  train_test_split = 0.9,
+                                  prop_cds = 0.5) {
   
-  length(train_seq) + length(test_seq)
+  # extract the cluster sequence as character string
+  cluster_sequence <- d %>% pull(cluster)
   
-  d <- list(train_data = make_lstm_sub_sequences(train_seq, max_seq_len, skip),
-            test_data = make_lstm_sub_sequences(test_seq, max_seq_len, skip))
+  # get the unique clusters 
+  unique_clusters <- cluster_sequence %>% unique() %>% sort()
   
-  # add one_hot encoding for next cluster output (y)
-  d$train_data$next_cluster_one_hot <- one_hot_encode(d$train_data$next_cluster, cluster_dict)
-  d$test_data$next_cluster_one_hot <- one_hot_encode(d$test_data$next_cluster, cluster_dict)
+  # create a matrix of one-hot vectors encoding
+  cluster_dict <- unique_clusters %>% keras::to_categorical()
   
-  d
-
+  # get the training and test cluster sequences using
+  seg_ids_to_use <- get_sample_seg_ids(d, train_test_split, prop_cds)
+  d_train <- d %>% filter(seg_id %in% seg_ids_to_use$train_seg_ids)
+  d_test <- d %>% filter(seg_id %in% seg_ids_to_use$test_seg_ids) 
+  
+  # create the sub-sequences based on max_seq_len and skip parameters
+  d_out <- list(train_data = make_lstm_sub_sequences(d_train, max_seq_len, skip),
+                test_data = make_lstm_sub_sequences(d_test, max_seq_len, skip))
+  
+  # add one_hot encoding for next cluster (y) in training and test datasets
+  d_out$train_data$next_cluster_one_hot <- one_hot_encode(d_out$train_data$next_cluster, cluster_dict)
+  d_out$test_data$next_cluster_one_hot <- one_hot_encode(d_out$test_data$next_cluster, cluster_dict)
+  
+  d_out
 }
 
-make_lstm_sub_sequences <- function(input_seq, max_seq_len, skip) {
-  data_seq <- seq(1, length(input_seq) - max_seq_len - 1, by = skip)
+# create a list of lists that stores all information for training and test
+# each element is a question/answer pairs for the model to learn
+# questions are the previous n pitch shapes
+# answers are th next pitch shape in the sequence
+# we also store some metadata about the utterance: id, time_bin_id (position in utt), and speech register
+make_lstm_sub_sequences <- function(d_input, max_seq_len, skip) {
   
-  data_seq %>% 
-    map(~list(prev_cluster_seq = input_seq[.x:(.x + max_seq_len - 1)], 
-              next_cluster = input_seq[.x + max_seq_len])) %>% 
+  data_seq <- seq(1, length(d_input$cluster) - max_seq_len - 1, by = skip)
+  
+  data_seq %>%
+    map(~  list(
+      prev_cluster_seq = d_input$cluster[.x:(.x + max_seq_len - 1)],
+      next_cluster = d_input$cluster[.x + max_seq_len],
+      next_cluster_seg_id = d_input$seg_id[.x + max_seq_len],
+      next_cluster_time_bin_id = d_input$time_bin_id[.x + max_seq_len],
+      next_cluster_speech_register = d_input$speech_register[.x + max_seq_len])
+    ) %>%
     transpose()
 }
 
@@ -57,3 +81,22 @@ vectorize_data <- function(data_list, data_type) {
   }
   
 } 
+
+get_sample_seg_ids <- function(d, train_test_split, prop_cds) {
+  d %>% distinct(seg_id, speech_register) -> d
+  
+  n_to_sample <- as.integer(nrow(d) * train_test_split)
+  n_per_group <- as.integer(n_to_sample * prop_cds)
+  
+  train_seg_ids <- d %>% 
+    group_by(speech_register) %>% 
+    sample_n(n_per_group) %>% 
+    pull(seg_id)
+  
+  test_seg_ids <- setdiff(unique(d$seg_id), train_seg_ids)
+  
+  list(train_seg_ids = train_seg_ids, test_seg_ids = test_seg_ids)
+}
+
+# clean up names of predictions
+fix_names <- function(x) gsub("V", "class_", x)
