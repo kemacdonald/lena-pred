@@ -69,7 +69,8 @@ get_cluster_assignments <- function(df, k) {
   
   cl <- kmeans(coefs_mat, centers = k)
   
-  list(centers = cl$centers %>% as_tibble(rownames = "cluster") %>% mutate(coef_intercept = 0),
+  list(centers = cl$centers %>% as_tibble(rownames = "cluster") %>% mutate(coef_intercept = 0, 
+                                                                           cluster = as.numeric(cluster) - 1),
        d_clusters = df %>% mutate(cluster = cl$cluster - 1) 
   )
 }
@@ -83,13 +84,25 @@ add_utt_duration_segs <- function(d) {
 # plot the polynomial shapes indicated by the cluster centers after kmeans step
 # the sequence of these shapes is what the dnn is trying to learn
 plot_cluster_shapes <- function(df_centers) {
-  df_centers %>% 
+  ms <- df_centers %>% 
     group_by(cluster) %>% 
     nest() %>% 
     mutate(poly_preds = map(data, predict_poly)) %>% 
-    unnest(poly_preds) %>% 
-    ggplot(aes(x = time_ms, y = pred, color = cluster)) +
-    geom_line(alpha = 0.5, size = 1)  
+    unnest(poly_preds)
+  
+  ms %>% 
+    ggplot(aes(x = time_ms, y = pred, color = as_factor(cluster))) +
+    geom_line(size = 1) +
+    ggrepel::geom_label_repel(aes(label = cluster, fill = as_factor(cluster)), 
+                             data = filter(ms, time_ms == max(time_ms)),
+                             color = "black",
+                             box.padding = unit(0.35, "lines"),
+                             size = 3,
+                             nudge_x = 2) +
+    guides(fill = F, color = F) +
+    ggthemes::scale_color_ptol(drop = FALSE) +
+    ggthemes::scale_fill_ptol(drop = FALSE)
+    
 }
 
 # plot a sample of the pitch shapes based on the polynomial coefs returned in the
@@ -151,16 +164,18 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
     ggplot(aes(time, z_log_pitch)) +
     geom_line(size = 1, color = "#756bb1") +
     guides(fill = F) +
+    labs(x = "time (ms)", y = "normalized log pitch") +
     facet_wrap(~seg_id, scales = "free_x") +
     theme(legend.position = 'top') 
   
   df_preds_expanded <- df_preds %>%
+    mutate(cluster = as_factor(cluster)) %>% 
     filter(seg_id == seg_id_to_plot) %>%
     unnest(poly_preds) %>%
     group_by(seg_id) %>%
     mutate(n_samples = n(),
            x = seq(0, unique(n_samples) - 1, by = 1))
-
+  
   df_cluster_labels <- df_preds_expanded %>%
     select(seg_id, time_ms, pred, time_bin_id, cluster) %>%
     mutate(pred = min(pred) + 0.3,
@@ -172,14 +187,13 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
     guides(fill = F) +
     geom_label(data = df_cluster_labels,
                aes(time_ms, pred, label = cluster, 
-                   fill = as_factor(cluster))) +
+                   fill = cluster)) +
     facet_wrap(~time_bin_id, scales = "free_x", nrow =1) +
     theme(legend.position = 'top',
           axis.title.x=element_blank(),
           axis.text.x=element_blank(),
-          axis.ticks.x=element_blank()
-    ) +
-    ggthemes::scale_fill_ptol()
+          axis.ticks.x=element_blank()) +
+    ggthemes::scale_fill_ptol(drop = FALSE)
   
   cowplot::plot_grid(orig, segmented, nrow = 2)
   
