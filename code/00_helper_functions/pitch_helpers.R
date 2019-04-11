@@ -61,18 +61,30 @@ relabel_bins <- function(d) {
     left_join(d, .)
 }
 
-get_cluster_assignments <- function(df, k) {
-  
-  coefs_mat <- df %>% 
-    select(coef_quadratic, coef_linear) %>% 
-    as.matrix()  
+get_cluster_assignments <- function(df, k, scale_coefs = TRUE) {
+  if (scale_coefs) {
+    m_linear <- df$coef_linear %>% mean()
+    m_quad <- df$coef_quadratic %>% mean()
+    sd_linear <- df$coef_linear %>% sd()
+    sd_quad <- df$coef_quadratic %>% sd()
+    
+    coefs_mat <- df %>% 
+      select(coef_quadratic, coef_linear) %>% 
+      as.matrix() %>% 
+      scale()
+  } else {
+    coefs_mat <- df %>% 
+      select(coef_quadratic, coef_linear) %>% 
+      as.matrix()  
+  }
   
   cl <- kmeans(coefs_mat, centers = k)
   
-  list(centers = cl$centers %>% as_tibble(rownames = "cluster") %>% mutate(coef_intercept = 0, 
-                                                                           cluster = as.numeric(cluster) - 1),
-       d_clusters = df %>% mutate(cluster = cl$cluster - 1) 
-  )
+  list(centers = cl$centers %>% as_tibble(rownames = "cluster") %>% 
+         mutate(coef_intercept = 0,  cluster = as.numeric(cluster) - 1,
+                coef_linear_unscaled = coef_linear * sd_linear + m_linear,
+                coef_quadratic_unscaled = coef_quadratic * sd_quad + m_quad),
+       d_clusters = df %>% mutate(cluster = cl$cluster - 1) )
 }
 
 add_utt_duration_segs <- function(d) {
@@ -83,26 +95,65 @@ add_utt_duration_segs <- function(d) {
 
 # plot the polynomial shapes indicated by the cluster centers after kmeans step
 # the sequence of these shapes is what the dnn is trying to learn
-plot_cluster_shapes <- function(df_centers) {
-  ms <- df_centers %>% 
-    group_by(cluster) %>% 
-    nest() %>% 
-    mutate(poly_preds = map(data, predict_poly)) %>% 
-    unnest(poly_preds)
+plot_cluster_shapes <- function(df_centers, scaled = TRUE) {
+  if (scaled) {
+    ms <- df_centers %>% 
+      mutate(coef_linear = coef_linear_unscaled,
+             coef_quadratic = coef_quadratic_unscaled) %>% 
+      group_by(cluster) %>% 
+      nest() %>% 
+      mutate(poly_preds = map(data, predict_poly)) %>% 
+      unnest(poly_preds)
+  } else {
+    ms <- df_centers %>% 
+      group_by(cluster) %>% 
+      nest() %>% 
+      mutate(poly_preds = map(data, predict_poly)) %>% 
+      unnest(poly_preds)  
+  }
   
-  ms %>% 
-    ggplot(aes(x = time_ms, y = pred, color = as_factor(cluster))) +
-    geom_line(size = 1) +
-    ggrepel::geom_label_repel(aes(label = cluster, fill = as_factor(cluster)), 
-                             data = filter(ms, time_ms == max(time_ms)),
-                             color = "black",
-                             box.padding = unit(0.35, "lines"),
-                             size = 3,
-                             nudge_x = 2) +
-    guides(fill = F, color = F) +
-    ggthemes::scale_color_ptol(drop = FALSE) +
-    ggthemes::scale_fill_ptol(drop = FALSE)
-    
+  
+  if (ms$cluster %>% unique() %>% length <= 12) {
+    ms %>% 
+      ggplot(aes(x = time_ms, y = pred, color = as_factor(cluster))) +
+      geom_line(size = 1) +
+      ggrepel::geom_label_repel(aes(label = cluster, fill = as_factor(cluster)), 
+                                data = filter(ms, time_ms == max(time_ms)),
+                                color = "white",
+                                box.padding = unit(0.35, "lines"),
+                                size = 3,
+                                nudge_x = 2) +
+      guides(fill = F, color = F) +
+      ggthemes::scale_color_ptol(drop = FALSE) +
+      ggthemes::scale_fill_ptol(drop = FALSE)
+  } else {
+    ms %>% 
+      ggplot(aes(x = time_ms, y = pred)) +
+      geom_line(size = 1) +
+      ggrepel::geom_label_repel(aes(label = cluster), 
+                                data = filter(ms, time_ms == max(time_ms)),
+                                color = "black",
+                                box.padding = unit(0.35, "lines"),
+                                size = 3,
+                                nudge_x = 2) +
+      guides(fill = F, color = F) +
+      facet_wrap(~cluster)
+  }
+}
+
+plot_clusters_scatter <- function(d) {
+  if (d$cluster %>% unique() %>% length() <= 12) {
+    d_final$d_clusters %>% 
+      ggplot(aes(coef_quadratic, coef_linear, color = as_factor(cluster))) +
+      geom_point(size = 3, alpha = 0.7) +
+      ggthemes::scale_color_ptol(drop = FALSE) +
+      facet_grid(dataset ~ speech_register)
+  } else {
+    d %>% 
+      ggplot(aes(coef_quadratic, coef_linear, color = cluster)) +
+      geom_point(size = 3, alpha = 0.7) +
+      facet_grid(dataset ~ speech_register)
+  }
 }
 
 # plot a sample of the pitch shapes based on the polynomial coefs returned in the
@@ -181,20 +232,36 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
     mutate(pred = min(pred) + 0.3,
            time_ms = max(time_ms) * 0.2)
   
-  segmented <-  df_preds_expanded %>%
-    ggplot(aes(time_ms, pred)) +
-    geom_line(size = 1, color = "#756bb1") +
-    guides(fill = F) +
-    geom_label(data = df_cluster_labels,
-               aes(time_ms, pred, label = cluster, 
-                   fill = cluster)) +
-    facet_wrap(~time_bin_id, scales = "free_x", nrow =1) +
-    theme(legend.position = 'top',
-          axis.title.x=element_blank(),
-          axis.text.x=element_blank(),
-          axis.ticks.x=element_blank()) +
-    ggthemes::scale_fill_ptol(drop = FALSE)
-  
+  if ( df_cluster_labels$cluster %>% nlevels() <= 12 ) {
+    segmented <-  df_preds_expanded %>%
+      ggplot(aes(time_ms, pred)) +
+      geom_line(size = 1, color = "#756bb1") +
+      guides(fill = F) +
+      geom_label(data = df_cluster_labels,
+                 aes(time_ms, pred, label = cluster,
+                     fill = cluster),
+                 color = "white") +
+      facet_wrap(~time_bin_id, scales = "free_x", nrow =1) +
+      theme(legend.position = 'top',
+            axis.title.x=element_blank(),
+            axis.text.x=element_blank(),
+            axis.ticks.x=element_blank()) +
+      ggthemes::scale_fill_ptol(drop = FALSE)
+  } else {
+    segmented <-  df_preds_expanded %>%
+      ggplot(aes(time_ms, pred)) +
+      geom_line(size = 1, color = "#756bb1") +
+      guides(fill = F) +
+      geom_label(data = df_cluster_labels,
+                 aes(time_ms, pred, label = cluster),
+                 color = "black") +
+      facet_wrap(~time_bin_id, scales = "free_x", nrow =1) +
+      theme(legend.position = 'top',
+            axis.title.x=element_blank(),
+            axis.text.x=element_blank(),
+            axis.ticks.x=element_blank()) 
+  }
+
   cowplot::plot_grid(orig, segmented, nrow = 2)
   
 }

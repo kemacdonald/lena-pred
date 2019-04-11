@@ -15,3 +15,4 @@ experiments/
 hddm/
 .ipynb_checkpoints/
 DiViMe/
+*_files/
