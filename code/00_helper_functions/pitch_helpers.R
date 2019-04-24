@@ -1,5 +1,17 @@
 ##### Pitch processing helper functions 
 
+# function to process and extract pitch contour from .wav file
+# returns a data frame with the segment id, dataset, pitch values, and amplitude
+get_pitch_contour <- function(file_path, ...) {
+  file_path_spl <- str_split(file_path, "/", simplify = T)
+  analyze(x = file_path, plot = FALSE, ...) %>% 
+    mutate(dataset = file_path_spl[10],
+           path_to_wav = file_path,
+           speech_register = file_path_spl[11], 
+           seg_id = str_remove(file_path_spl[12], '.wav')) %>% 
+    select(dataset, speech_register, seg_id, pitch, voiced, time, ampl, path_to_wav) 
+}
+
 # embed audio player in html knit from Rmd
 html_tag_audio <- function(file, type = "wav") {
   htmltools::tags$audio(controls = NA,
@@ -8,16 +20,33 @@ html_tag_audio <- function(file, type = "wav") {
                                                                  type = type)))
 }
 
-# filters time series to first voiced sample
-# re-zeroes the the time variable
-filter_first_voiced <- function(df) {
-  min_cut_point <- df %>% filter(!is.na(pitch)) %>% pull(time) %>% min()
-  max_cut_point <- df %>% filter(!is.na(pitch)) %>%  pull(time) %>% max()
-  
-  df %>% filter(time >= min_cut_point & time <= max_cut_point) %>% mutate(time = time - min_cut_point)
+# filters all segments in a dataframe, removing samples before and after 
+# the first pitch candidate
+# also re-zeroes the time variable to start at zero
+batch_filter_voiced <- function(d) {
+  d %>% 
+    split(.$seg_id) %>% 
+    map_df(filter_voiced)
+}
+
+filter_voiced <- function(d) {
+  min_cut_point <- d %>% filter(!is.na(pitch)) %>% pull(time) %>% min()
+  max_cut_point <- d %>% filter(!is.na(pitch)) %>%  pull(time) %>% max()
+
+  d %>% 
+    filter(time >= min_cut_point & time <= max_cut_point) %>% 
+    mutate(time = time - min_cut_point)
 }
 
 # use loess model to intrpolate between pitch estimates
+batch_interpolate <- function(d) {
+  d %>% 
+    filter(!(seg_id %in% seg_id_blacklist)) %>% 
+    split(.$seg_id) %>% 
+    map_df(interpolate_loess, frac_points = frac_points_loess, sample_rate = preds_sample_rate) %>% 
+    filter(!is.na(pitch_interpolated)) 
+}
+
 interpolate_loess <- function(df, sample_rate, frac_points) {
   
   t_to_predict <- seq(0, max(df$time), by = sample_rate)
@@ -52,7 +81,7 @@ get_time_in_bin <- function(d) {
            n_bins_in_seg = n())
 }
 
-# create more meaningful bin labels
+# create more meaningful bin labels for each 100 ms time bin
 relabel_bins <- function(d) {
   d %>% 
     distinct(seg_id, time_bin) %>% 
@@ -61,6 +90,7 @@ relabel_bins <- function(d) {
     left_join(d, .)
 }
 
+# returns kmeans cluster assignments for each 100 ms time bin
 get_cluster_assignments <- function(df, k, scale_coefs = TRUE) {
   if (scale_coefs) {
     m_linear <- df$coef_linear %>% mean()
@@ -87,6 +117,7 @@ get_cluster_assignments <- function(df, k, scale_coefs = TRUE) {
        d_clusters = df %>% mutate(cluster = cl$cluster - 1) )
 }
 
+# add the duration of utterances to the dataframe
 add_utt_duration_segs <- function(d) {
   d %>% 
     group_by(seg_id) %>% 
@@ -174,8 +205,8 @@ plot_sample_pitch_shapes <- function(d, frac_sample) {
     facet_wrap(~cluster, scales = "free_y")
 }
 
-## fits polynomial function of time predicting interpolated, normalized log(pitch) values
-## returns a vector with length 3 that contains the coeficients for re-creating polynomial 
+# fits polynomial function of time predicting interpolated, normalized log(pitch) values
+# returns a vector with length 3 that contains the coeficients for re-creating polynomial 
 fit_poly <- function(df, degree, fix = F, xfix, yfix) {
   
   if (fix == T) {
@@ -266,19 +297,11 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
   
 }
 
-## function to process and extract pitch contour from .wav file
-## returns a data frame with the segment id, dataset, pitch values, and amplitude
-get_pitch_contour <- function(file_path, ...) {
-  file_path_spl <- str_split(file_path, "/", simplify = T)
-  
-  analyze(x = file_path,
-          pitchFloor = lowest_pitch,
-          pitchCeiling = highest_pitch,
-          silence = silence_min,
-          plot = FALSE) %>% 
-    mutate(dataset = file_path_spl[10],
-           path_to_wav = file_path,
-           speech_register = file_path_spl[11], 
-           seg_id = str_remove(file_path_spl[12], '.wav')) %>% 
-    select(dataset, speech_register, seg_id, pitch, voiced, time, ampl, path_to_wav) 
+# Create a blacklist of segment ids with too few pitch estimates to do loess
+flag_too_few_pitch <- function(d, min_n_samples) {
+  seg_id_blacklist <- d %>% 
+    filter(!is.na(pitch)) %>% 
+    count(seg_id) %>% 
+    filter(n <= min_n_samples) %>% 
+    pull(seg_id)
 }

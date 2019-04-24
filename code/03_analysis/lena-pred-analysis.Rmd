@@ -1,0 +1,85 @@
+---
+title: "Lena-pred Analyze DNN"
+author: "Kyle MacDonald"
+output: html_document
+---
+
+## Set up
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F, message = F,
+                      fig.asp = 0.8, fig.width = 8,
+                      fig.align = 'center', out.width = "80%")
+```
+
+```{r}
+library(tidyverse); library(here)
+source(here("code/00_helper_functions/plot_theme.R"))
+data_path <- "data/03_summaries/"
+```
+
+Read model predictions 
+
+```{r}
+d <- fst::read_fst(here(data_path, "lena-pred-lstm-preds.fst"))
+```
+
+Get the posterior probability mass placed on the correct cluster, get the predicted cluster, and change dataset label to lowercase.
+
+```{r}
+d <- d %>% 
+  group_by(seg_id, time_bin_id) %>% 
+  mutate(is_target_cluster = ifelse(str_detect(cluster_shape, target_cluster), TRUE, FALSE),
+         predicted_cluster = which.max(prob_mass),
+         dataset = str_to_lower(dataset),
+         correct_pred = ifelse(target_cluster == predicted_cluster, 1, 0))
+```
+
+## ManyBabies: CDS vs. ADS 
+
+First, we replicate the key analysis in Rasanen et al. (2018), which compared the average predictability of ADS vs. CDS.
+
+```{r}
+d_mb <- d #%>% filter(dataset == "manybabies")
+
+d_mb %>% 
+  filter(is_target_cluster == TRUE) %>% 
+  group_by(seg_id, speech_register) %>% 
+  summarise(m = mean(prob_mass)) %>% 
+  knitr::kable(digits = 2)
+```
+
+Model
+
+```{r}
+m_prob_correct <- m_brms::brm()
+```
+
+
+### What about accuracy at predicting the correct cluster?
+
+```{r}
+d_mb %>% 
+  group_by(seg_id, speech_register) %>% 
+  summarise(m = mean(correct_pred)) %>% 
+  knitr::kable(digits = 2)
+```
+
+## Temporal analysis
+
+Here, we replicate Rasanen et al. (2018)'s analysis of how the predictability of the intonation changes as a function of position in the utterances, and whether the differences in IDS and ADS would be specific to certain position(s).
+
+From their paper:
+
+> the analysis was conducted separately for short and long utterances using a division that ensured that several utterances from each talker ended up in both categories. we determined the set of short utterances by finding cutoff values for the maximum number of syllables in IDS and ADS utterances such that the style-specific distributions of utterance lengths (in syllables) were not statistically different from each other. 
+
+> We also required the total number of tokens in each length/style-group to be above 100.
+
+> The reported values are based on resampling the varying-length F0 likelihood contours into ten bins and then averaging the results across all data (i.e., contours of different length tokens within the same length- and style-group were stretched or shrunk to have an equal length of 10 segments to enable the comparison)
+
+Plot the F0 predictability measures as a function of the relative position in the utterances together with the corresponding average F0 contours
+
+```{r}
+
+```
+

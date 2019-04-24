@@ -101,8 +101,8 @@ m_fit <- model %>%
       batch_size = 10,
       epochs = 60,
       validation_split = 0.3, # ask Okko about validation split
-      shuffle = TRUE#,
-      #callbacks = early_stop
+      shuffle = TRUE,
+      callbacks = early_stop
       ) 
 ```
 
@@ -116,7 +116,6 @@ plot(m_fit)
 
 ```{r}
 results <- model %>% keras::evaluate(test_in, test_out)
-
 results
 ```
 
@@ -126,6 +125,11 @@ Get a predicted probability distribution over each cluster in test sequences and
 
 ```{r}
 preds <- model %>% predict(test_in)
+```
+
+Tidy up the model predictions for later analysis.
+
+```{r}
 d_preds <- preds %>% as_tibble(.name_repair = "universal") %>% janitor::clean_names()
 colnames(d_preds) <- colnames(d_preds) %>% str_replace("x", "shape_")
 
@@ -133,15 +137,16 @@ d_preds %>%
   mutate(seg_id = d$test_data$next_cluster_seg_id %>% as.character(),
          speech_register = d$test_data$next_cluster_speech_register %>% as.character(),
          time_bin_id = d$test_data$next_cluster_time_bin_id %>% as.character(),
-         target_cluster = d$test_data$next_cluster %>% as.character()) %>% 
-  select(seg_id, speech_register, time_bin_id, target_cluster, 
+         target_cluster = d$test_data$next_cluster %>% as.character(),
+         dataset = d$test_data$next_cluster_dataset %>% as.character()) %>% 
+  select(seg_id, dataset, speech_register, time_bin_id, target_cluster, 
          everything()) -> d_preds
 
 # tidy the predictions
 d_preds_tidy <- d_preds %>% gather(key = "cluster_shape", value = "prob_mass", shape_1:shape_8)
 ```
 
-Save.
+Save predictions
 
 ```{r}
 if (use_rasanen) {

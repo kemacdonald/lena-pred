@@ -36,27 +36,33 @@ source(here("code/00_helper_functions/plot_theme.R"))
 
 ```{r globals pitch extraction}
 set.seed(12345)
-
 path_to_wav <- "data/02_processed_data/pilot-segments-norm"
-
 min_prop_voiced <- 0.1 # min proportion of voiced samples (need to ask AW about this number)
-
-lowest_pitch <- 75     # clips extreme pitch estimates
-highest_pitch <- 750  # clips extreme pitch estimates 
 time_bin_width <- 100  # in ms
-silence_min <- 0.04    # lower bound of silence in recording, silent frames are not analyzed for pitch
 
-min_n_samples_loess <- 20  # min number of pitch candidates needed to fit loess (20 = 500 ms of pitch data)
-frac_points_loess <- 0.2   # what percentage point for fitting loess interpoloation (higher = less wiggly)
-preds_sample_rate <- 10    # how many frequently to sample from fitted loess (ms)
+pitch_min <- 75             # clips extreme pitch estimates
+pitch_max <- 650            # clips extreme pitch estimates 
+silence_min <- 0.01        # lower bound of silence in recording, silent frames are not analyzed 
+step <-  10
+windowLength <- 50         # 
+
+wn <- "hanning"
+
+ent_threshold <- 0.6
+autocor_thresh <- 0.7
+pathfinding_alg <- "fast"   # method of finding the optimal path through pitch candidates
+pitch_methods = c("autocor", "spec", "dom")
+
+min_n_samples_loess <- 20   # min number of pitch candidates needed to fit loess (20 = 500 ms)
+frac_points_loess <- 0.20   # what percentage point for fitting loess (higher = less wiggly)
+preds_sample_rate <- 10    # how frequently to sample from fitted loess (ms)
 
 min_samples_bin <- 10  # min number of samples in a time bin
-
 
 degree_poly <- 2 # degree of polynomial curve fit to the temporal segments
 n_q_shapes <- 10  # number of q-shapes for k-means clustering step
 
-seq_max_len <- 10     # max length of the subs-sequences for training lstm
+seq_max_len <- 10     # max length of the sub-sequences for training lstm
 skip_val <- 1         # how many steps to shift each training sub-sequence
 prop_train <- 0.9     # prop of uttereances to use for training vs. test
 prop_train_cds <- 0.5 # prop of CDS utterances in th training dataseet
@@ -73,15 +79,20 @@ files_to_analyze <- here(path_to_wav, files_to_analyze)
 Extract pitch contours for each .wav file. We use our own `get_pitch_contour()` function, which gets mapped over each .wav file. 
 
 ```{r extract pitch estimates, cache = T}
-d <- files_to_analyze %>% map_df(get_pitch_contour, lowest_pitch, highest_pitch, silence_min)
+d <- files_to_analyze[1] %>% map_df(get_pitch_contour, 
+                                 pitchFloor = pitch_min, 
+                                 pitchCeiling = pitch_max,
+                                 pitchMethods = pitch_methods, 
+                                 pathfinding = pathfinding_alg, 
+                                 silence = silence_min,
+                                 entropyThres = ent_threshold,
+                                 autocorThres = autocor_thresh)
 ```
 
 Find first and last voiced region and remove time values outside. This ensures that we aren't extrapolating outside the range of the data with our interpolation step.
 
 ```{r filter first and last voiced}
-d %>% 
-  split(.$seg_id) %>% 
-  map_df(filter_first_voiced) -> d
+batch_filter_voiced(d) -> d
 ```
 
 Plot a sample of eight pitch contours, four from each dataset and and speech register.
@@ -93,16 +104,16 @@ segs_to_plot <- d %>%
   sample_n(2)
 
 d %>% 
-  filter(seg_id %in% segs_to_plot$seg_id[1]) %>% 
+  filter(seg_id %in% segs_to_plot$seg_id) %>% 
   ggplot(aes(x = time, y = pitch, color = speech_register)) +
-  geom_line(size = 1) +
+  geom_point(size = 3) +
   labs(x = "Time (ms)", y = "Pitch ") +
-  lims(y = c(0, 750)) +
+  lims(y = c(pitch_min, pitch_max)) +
   facet_wrap(dataset + speech_register~seg_id, 
              #scales = "free_x", 
              ncol = 4
-             ) +
-  theme(legend.position = 'top') +
+  ) +
+  theme(legend.position = 'top', text = element_text(size = 30)) +
   ggthemes::scale_color_ptol() 
 ```
 
@@ -110,25 +121,16 @@ Looks like we can extract pitch estimates from audio files in both datasets.
 
 ### Interpolate pitch contour over unvoiced regions between pitch estimates
 
-Create a blacklist of segment ids with too few pitch estimate to do any kind of reliable interpolation using the loess. Here we choose 20 pitch samples, which is 500 ms of pitch data. 
+Create a blacklist of segment ids with too few pitch estimates to do any kind of reliable interpolation using the loess. Here we choose 20 pitch samples, which is 500 ms of pitch data. 
 
-```{r filter too few pitch estimates}
-seg_id_blacklist <- d %>% 
-  filter(!is.na(pitch)) %>% 
-  count(seg_id) %>% 
-  filter(n <= min_n_samples_loess) %>% 
-  pull(seg_id)
-```
+```{r}
+seg_id_blacklist <- flag_too_few_pitch(d, min_n_samples_loess) 
 
-```{r interpolate and log transform}
-d %>% 
-  filter(!(seg_id %in% seg_id_blacklist)) %>% 
-  split(.$seg_id) %>% 
-  map_df(interpolate_loess, frac_points_loess, sample_rate = preds_sample_rate) %>% 
-  filter(!is.na(pitch_interpolated)) -> d_interp
+batch_interpolate(d) -> d_interp  
 
 # log transform and Z-score
-d_interp %>% mutate(log_pitch = log(pitch_interpolated), z_log_pitch = scale(log_pitch)) -> d_interp
+d_interp %>% mutate(log_pitch = log(pitch_interpolated), 
+                    z_log_pitch = scale(log_pitch)) -> d_interp
 ```
 
 Let's plot the originial pitch estimates (points) with our interpolated pitch contours (black lines) to sanity check the interpolation step. 
@@ -141,8 +143,9 @@ d_interp %>%
   geom_point(data = filter(d, seg_id %in% segs_to_plot$seg_id), 
              aes(time, pitch, color = speech_register), 
              size = 2, 
-             alpha = 0.6) +
+             alpha = 0.8) +
   labs(x = "Time (ms)", y = "Pitch") +
+  lims(y = c(0, 750)) +
   facet_wrap(dataset + speech_register~seg_id, 
              #scales = "free_x", 
              ncol = 4) +
@@ -184,7 +187,7 @@ From the plot, it looks like the temporal segmentation step is working.
 
 ### Fit second-order polynomial in each time bin
 
-We pass the time and normalized log transformed pitch values aand get out the coefficients of a second-order polynomial function for each time bin (vector with length 3). We hold onto the segment_id, dataset, speech register, and time_bin as metadata. 
+We pass the time and normalized log transformed pitch values and get out the coefficients of a second-order polynomial function for each time bin (vector with length 3). We hold onto the segment_id, dataset, speech register, and time_bin as metadata. 
 
 ```{r fit polynomial to time bins}
 d_interp %>% 
@@ -228,7 +231,7 @@ shapes_plot
 d_by_bin %>% left_join(select(d_final$d_clusters, seg_id, time_bin_id, cluster)) -> d_by_bin
 
 # plot
-seg_id_to_plot <- "B-01_06_1167_4_15_fids"
+seg_id_to_plot <- "block, Baby 1266_548.7955140483489"
 recontruct_plot <- plot_reconstructed_pitch(seg_id_to_plot, df_raw = d_interp, df_preds = d_by_bin) 
 
 recontruct_plot
@@ -246,10 +249,10 @@ add_utt_duration_segs(d_final$d_clusters) -> d_final$d_clusters
 
 Now we create the dataset. We want to be able to control the proportion of data used for training. We also want to be able to do experiments with the proportion of:
 
-  * ADS/CDS utterance types 
-  * male/female
-  * speaker (caregiver vs. not caregiver) [TODO]
-  
+* ADS/CDS utterance types 
+* male/female
+* speaker (caregiver vs. not caregiver) [TODO]
+
 To do this, we add the relevant knobs to our dataset generator function.
 
 ```{r generate lstm dataset}
