@@ -30,63 +30,15 @@ library(soundgen); library(tidyverse); library(here)
 source(here("code/00_helper_functions/pitch_helpers.R"))
 source(here("code/00_helper_functions/lstm-helpers.R"))
 source(here("code/00_helper_functions/plot_theme.R"))
+source(here("code/00_config/lena-pred-pitch-config.R"))
 ```
 
 ## Extract pitch contours
 
-```{r globals pitch extraction}
-set.seed(12345)
-path_to_wav <- "data/02_processed_data/pilot-segments-norm"
-min_prop_voiced <- 0.1 # min proportion of voiced samples (need to ask AW about this number)
-time_bin_width <- 100  # in ms
-
-pitch_min <- 75             # clips extreme pitch estimates
-pitch_max <- 650            # clips extreme pitch estimates 
-silence_min <- 0.01        # lower bound of silence in recording, silent frames are not analyzed 
-step <-  10
-windowLength <- 50         # 
-
-wn <- "hanning"
-
-ent_threshold <- 0.6
-autocor_thresh <- 0.7
-pathfinding_alg <- "fast"   # method of finding the optimal path through pitch candidates
-pitch_methods = c("autocor", "spec", "dom")
-
-min_n_samples_loess <- 20   # min number of pitch candidates needed to fit loess (20 = 500 ms)
-frac_points_loess <- 0.20   # what percentage point for fitting loess (higher = less wiggly)
-preds_sample_rate <- 10    # how frequently to sample from fitted loess (ms)
-
-min_samples_bin <- 10  # min number of samples in a time bin
-
-degree_poly <- 2 # degree of polynomial curve fit to the temporal segments
-n_q_shapes <- 10  # number of q-shapes for k-means clustering step
-
-seq_max_len <- 10     # max length of the sub-sequences for training lstm
-skip_val <- 1         # how many steps to shift each training sub-sequence
-prop_train <- 0.9     # prop of uttereances to use for training vs. test
-prop_train_cds <- 0.5 # prop of CDS utterances in th training dataseet
-
-# path to audio
-files_to_analyze <- list.files(here(path_to_wav), 
-                               pattern = "*.wav", 
-                               recursive = T)
-
-# add the full path
-files_to_analyze <- here(path_to_wav, files_to_analyze)
-```
-
 Extract pitch contours for each .wav file. We use our own `get_pitch_contour()` function, which gets mapped over each .wav file. 
 
 ```{r extract pitch estimates, cache = T}
-d <- files_to_analyze[1] %>% map_df(get_pitch_contour, 
-                                 pitchFloor = pitch_min, 
-                                 pitchCeiling = pitch_max,
-                                 pitchMethods = pitch_methods, 
-                                 pathfinding = pathfinding_alg, 
-                                 silence = silence_min,
-                                 entropyThres = ent_threshold,
-                                 autocorThres = autocor_thresh)
+d <- files_to_analyze %>% map_df(get_pitch_contour, pitch_detect_config)
 ```
 
 Find first and last voiced region and remove time values outside. This ensures that we aren't extrapolating outside the range of the data with our interpolation step.
@@ -98,7 +50,7 @@ batch_filter_voiced(d) -> d
 Plot a sample of eight pitch contours, four from each dataset and and speech register.
 
 ```{r plot sample pitch contours}
-segs_to_plot <- d %>% 
+segs_to_plot = d %>% 
   distinct(dataset, seg_id, speech_register, path_to_wav) %>% 
   group_by(dataset, speech_register) %>% 
   sample_n(2)
@@ -106,14 +58,13 @@ segs_to_plot <- d %>%
 d %>% 
   filter(seg_id %in% segs_to_plot$seg_id) %>% 
   ggplot(aes(x = time, y = pitch, color = speech_register)) +
-  geom_point(size = 3) +
+  geom_point(size = 2) +
   labs(x = "Time (ms)", y = "Pitch ") +
-  lims(y = c(pitch_min, pitch_max)) +
+  lims(y = c(pitch_detect_config$pitch_min, pitch_detect_config$pitch_max)) +
   facet_wrap(dataset + speech_register~seg_id, 
              #scales = "free_x", 
-             ncol = 4
-  ) +
-  theme(legend.position = 'top', text = element_text(size = 30)) +
+             ncol = 4) +
+  theme(legend.position = 'top') +
   ggthemes::scale_color_ptol() 
 ```
 
@@ -124,13 +75,14 @@ Looks like we can extract pitch estimates from audio files in both datasets.
 Create a blacklist of segment ids with too few pitch estimates to do any kind of reliable interpolation using the loess. Here we choose 20 pitch samples, which is 500 ms of pitch data. 
 
 ```{r}
-seg_id_blacklist <- flag_too_few_pitch(d, min_n_samples_loess) 
+seg_id_blacklist <- flag_too_few_pitch(d, loess_config$min_n_samples_loess) 
 
-batch_interpolate(d) -> d_interp  
+batch_interpolate(d, loess_config) -> d_interp  
 
 # log transform and Z-score
-d_interp %>% mutate(log_pitch = log(pitch_interpolated), 
-                    z_log_pitch = scale(log_pitch)) -> d_interp
+d_interp %>% 
+  mutate(log_pitch = log(pitch_interpolated), 
+         z_log_pitch = scale(log_pitch)) -> d_interp
 ```
 
 Let's plot the originial pitch estimates (points) with our interpolated pitch contours (black lines) to sanity check the interpolation step. 
@@ -139,13 +91,13 @@ Let's plot the originial pitch estimates (points) with our interpolated pitch co
 d_interp %>% 
   filter(seg_id %in% segs_to_plot$seg_id) %>% 
   ggplot(aes(x = time, y = pitch_interpolated)) +
-  geom_line(size = 1, color = "grey20") +
+  geom_line(size = 2, color = "grey20") +
   geom_point(data = filter(d, seg_id %in% segs_to_plot$seg_id), 
              aes(time, pitch, color = speech_register), 
              size = 2, 
-             alpha = 0.8) +
+             alpha = 0.7) +
   labs(x = "Time (ms)", y = "Pitch") +
-  lims(y = c(0, 750)) +
+  lims(y = c(pitch_detect_config$pitch_min, pitch_detect_config$pitch_max)) +
   facet_wrap(dataset + speech_register~seg_id, 
              #scales = "free_x", 
              ncol = 4) +
@@ -161,18 +113,18 @@ Divide each audio clip into fixed frame 100ms segments.
 
 ```{r create time bins}
 d_interp %>% 
-  create_time_bins(bin_width = time_bin_width) %>% 
-  get_time_in_bin() %>% 
-  relabel_bins -> d_interp
+  create_time_bins(bin_width = time_filter_config$time_bin_width) %>% 
+  get_time_in_bin(sample_rate = loess_config$preds_sample_rate) %>% 
+  relabel_bins() -> d_interp
 
 # Remove 100 ms segments with fewer than the min number of samples in each bin.
-d_interp %>% filter(n_bins_in_seg == min_samples_bin) -> d_interp
+d_interp %>% filter(n_bins_in_seg == time_filter_config$min_samples_bin) -> d_interp
 ```
 
 Make a plot to sanity check temporal segmentation step where we color each point based on its 100 ms time bin.
 
 ```{r plot time bins}
-one_seg_to_plot <- segs_to_plot$seg_id[1]
+one_seg_to_plot <- sample(segs_to_plot$seg_id, size = 1)
 
 d_interp %>% 
   filter(seg_id %in% one_seg_to_plot) %>% 
@@ -196,7 +148,7 @@ d_interp %>%
 
 # fit polynomial and make predictions based on those fits
 d_by_bin %>% 
-  mutate(poly_coefs = map(data, fit_poly, degree_poly)) %>% 
+  mutate(poly_coefs = map(data, fit_poly, poly_fit_config$degree_poly)) %>% 
   mutate(poly_preds = map(poly_coefs, predict_poly)) -> d_by_bin
 ```
 
@@ -206,7 +158,7 @@ We pass a 2 x 2 matrix of coefficient values for each 100 ms segment of the pitc
 
 ```{r get clusters}
 d_coefs <- unnest(d_by_bin, poly_coefs, .drop = T) 
-d_coefs %>% get_cluster_assignments(k = n_q_shapes, scale_coefs = T) -> d_final
+d_coefs %>% get_cluster_assignments(k = poly_fit_config$n_q_shapes, scale_coefs = T) -> d_final
 ```
 
 We can plot the distribution of cluster assignments for each dataset. 
@@ -231,9 +183,7 @@ shapes_plot
 d_by_bin %>% left_join(select(d_final$d_clusters, seg_id, time_bin_id, cluster)) -> d_by_bin
 
 # plot
-seg_id_to_plot <- "block, Baby 1266_548.7955140483489"
-recontruct_plot <- plot_reconstructed_pitch(seg_id_to_plot, df_raw = d_interp, df_preds = d_by_bin) 
-
+recontruct_plot <- plot_reconstructed_pitch(one_seg_to_plot, df_raw = d_interp, df_preds = d_by_bin) 
 recontruct_plot
 ```
 
@@ -257,10 +207,10 @@ To do this, we add the relevant knobs to our dataset generator function.
 
 ```{r generate lstm dataset}
 d_lstm <- generate_lstm_dataset(d_final$d_clusters, 
-                                max_seq_len = seq_max_len, 
-                                skip = skip_val,
-                                train_test_split = prop_train,
-                                prop_cds = prop_train_cds)
+                                max_seq_len = dnn_dataset_config$seq_max_len, 
+                                skip = dnn_dataset_config$skip_val,
+                                train_test_split = dnn_dataset_config$prop_train,
+                                prop_cds = dnn_dataset_config$prop_train_cds)
 
 # save coefs and cluster sequences
 fst::write_fst(d_final$centers, here("data/03_summaries/lena-pred-kmeans-centers.fst"))

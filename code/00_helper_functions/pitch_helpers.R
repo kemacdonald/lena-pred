@@ -2,14 +2,24 @@
 
 # function to process and extract pitch contour from .wav file
 # returns a data frame with the segment id, dataset, pitch values, and amplitude
-get_pitch_contour <- function(file_path, ...) {
+get_pitch_contour <- function(file_path, p_config) {
   file_path_spl <- str_split(file_path, "/", simplify = T)
-  analyze(x = file_path, plot = FALSE, ...) %>% 
+  
+  analyze(x = file_path, plot = FALSE,
+          pitchFloor = p_config$pitch_min,
+          pitchCeiling = p_config$pitch_max,
+          silence = p_config$silence_min,
+          autocorThres = p_config$autocor_threshold, 
+          pathfinding = p_config$pathfinding_alg,
+          pitchMethods = p_config$pitch_methods, entropyThres = p_config$ent_threshold,
+          step = p_config$step_size, 
+          wn = p_config$window_type,
+          windowLength = p_config$window_length) %>%
     mutate(dataset = file_path_spl[10],
            path_to_wav = file_path,
-           speech_register = file_path_spl[11], 
-           seg_id = str_remove(file_path_spl[12], '.wav')) %>% 
-    select(dataset, speech_register, seg_id, pitch, voiced, time, ampl, path_to_wav) 
+           speech_register = file_path_spl[11],
+           seg_id = str_remove(file_path_spl[12], '.wav')) %>%
+    select(dataset, speech_register, seg_id, pitch, voiced, time, ampl, path_to_wav)
 }
 
 # embed audio player in html knit from Rmd
@@ -32,34 +42,40 @@ batch_filter_voiced <- function(d) {
 filter_voiced <- function(d) {
   min_cut_point <- d %>% filter(!is.na(pitch)) %>% pull(time) %>% min()
   max_cut_point <- d %>% filter(!is.na(pitch)) %>%  pull(time) %>% max()
-
+  
   d %>% 
     filter(time >= min_cut_point & time <= max_cut_point) %>% 
     mutate(time = time - min_cut_point)
 }
 
 # use loess model to intrpolate between pitch estimates
-batch_interpolate <- function(d) {
+batch_interpolate <- function(d, loess_config) {
   d %>% 
     filter(!(seg_id %in% seg_id_blacklist)) %>% 
     split(.$seg_id) %>% 
-    map_df(interpolate_loess, frac_points = frac_points_loess, sample_rate = preds_sample_rate) %>% 
+    map_df(interpolate_loess, 
+           frac_points = loess_config$frac_points_loess, 
+           sample_rate = loess_config$preds_sample_rate) %>% 
     filter(!is.na(pitch_interpolated)) 
 }
 
-interpolate_loess <- function(df, sample_rate, frac_points) {
+interpolate_loess <- function(d, sample_rate, frac_points) {
   
-  t_to_predict <- seq(0, max(df$time), by = sample_rate)
-  preds <- loess(pitch ~ time, data = df, 
+  #t_to_predict <- seq(0, max(d$time), by = sample_rate)
+  t_to_predict <- d$time
+  
+  preds <- loess(pitch ~ time, 
+                 data = d, 
                  span = frac_points) %>% 
     predict(t_to_predict) 
   
   tibble(
-    seg_id = df$seg_id[1],
-    dataset = df$dataset[1],
-    speech_register = df$speech_register[1],
+    seg_id = d$seg_id[1],
+    dataset = d$dataset[1],
+    speech_register = d$speech_register[1],
     time = t_to_predict, 
-    pitch_interpolated = preds
+    pitch_interpolated = preds,
+    pitch_original = d$pitch
   ) 
 }
 
@@ -74,10 +90,10 @@ create_time_bins <- function(d, bin_width) {
 }
 
 # re-zero time wrt to this 100 ms time bin
-get_time_in_bin <- function(d) {
+get_time_in_bin <- function(d, sample_rate) {
   d %>% 
     group_by(seg_id, time_bin) %>% 
-    mutate(time_wrt_bin = seq_along(time_bin) * preds_sample_rate,
+    mutate(time_wrt_bin = seq_along(time_bin) * sample_rate,
            n_bins_in_seg = n())
 }
 
@@ -238,6 +254,27 @@ predict_poly <- function(d) {
 # separte 100ms second order polynomials and plots them alongside each other for sanity check
 plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
   
+  # get lims for plot
+  buffer <- 0.2
+  ylims <- c(min(df_raw$z_log_pitch) - buffer, max(df_raw$z_log_pitch) + buffer)
+  raw_pitch_max <- max(df_raw$pitch_original) + 100
+  # plot raw pitch contour
+  orig_raw_pitch <- df_raw %>%
+    filter(seg_id == seg_id_to_plot) %>%
+    group_by(seg_id) %>%
+    mutate(n_samples = n(),
+           x = seq(0, unique(n_samples) - 1, by = 1)) %>%
+    ggplot(aes(time, pitch_original)) +
+    geom_point(size = 2, color = "#756bb1") +
+    #geom_line(size = 1, color = "#756bb1") +
+    guides(fill = F) +
+    lims(y = c(0, raw_pitch_max)) +
+    labs(x = "time (ms)", y = "freq (Hz)") +
+    facet_wrap(~seg_id, scales = "free_x") +
+    theme(legend.position = 'top') 
+  
+  
+  # plot interpolated pitch contour
   orig <- df_raw %>%
     filter(seg_id == seg_id_to_plot) %>%
     group_by(seg_id) %>%
@@ -246,10 +283,12 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
     ggplot(aes(time, z_log_pitch)) +
     geom_line(size = 1, color = "#756bb1") +
     guides(fill = F) +
+    lims(y = ylims) +
     labs(x = "time (ms)", y = "normalized log pitch") +
     facet_wrap(~seg_id, scales = "free_x") +
     theme(legend.position = 'top') 
   
+  # create data for plotting segmented pitch contour with shape category
   df_preds_expanded <- df_preds %>%
     mutate(cluster = as_factor(cluster)) %>% 
     filter(seg_id == seg_id_to_plot) %>%
@@ -263,37 +302,32 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
     mutate(pred = min(pred) + 0.3,
            time_ms = max(time_ms) * 0.2)
   
+  # make segmented pitch plot
+  segmented_plot <-  df_preds_expanded %>%
+    ggplot(aes(time_ms, pred)) +
+    geom_line(size = 1, color = "#756bb1") +
+    lims(y = ylims) +
+    guides(fill = F) +
+    facet_wrap(~time_bin_id, scales = "free_x", nrow =1) +
+    theme(legend.position = 'top',
+          axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+  
   if ( df_cluster_labels$cluster %>% nlevels() <= 12 ) {
-    segmented <-  df_preds_expanded %>%
-      ggplot(aes(time_ms, pred)) +
-      geom_line(size = 1, color = "#756bb1") +
-      guides(fill = F) +
+    segmented_plot <- segmented_plot +
       geom_label(data = df_cluster_labels,
-                 aes(time_ms, pred, label = cluster,
-                     fill = cluster),
+                 aes(time_ms, pred, label = cluster,fill = cluster),
                  color = "white") +
-      facet_wrap(~time_bin_id, scales = "free_x", nrow =1) +
-      theme(legend.position = 'top',
-            axis.title.x=element_blank(),
-            axis.text.x=element_blank(),
-            axis.ticks.x=element_blank()) +
       ggthemes::scale_fill_ptol(drop = FALSE)
   } else {
-    segmented <-  df_preds_expanded %>%
-      ggplot(aes(time_ms, pred)) +
-      geom_line(size = 1, color = "#756bb1") +
-      guides(fill = F) +
+    segmented_plot <- segmented_plot +
       geom_label(data = df_cluster_labels,
                  aes(time_ms, pred, label = cluster),
-                 color = "black") +
-      facet_wrap(~time_bin_id, scales = "free_x", nrow =1) +
-      theme(legend.position = 'top',
-            axis.title.x=element_blank(),
-            axis.text.x=element_blank(),
-            axis.ticks.x=element_blank()) 
+                 color = "black") 
   }
-
-  cowplot::plot_grid(orig, segmented, nrow = 2)
+  
+  cowplot::plot_grid(orig_raw_pitch, orig, segmented_plot, nrow = 3)
   
 }
 
