@@ -1,0 +1,70 @@
+---
+title: "Lena-pred Visualization"
+author: "Kyle MacDonald"
+output: html_document
+---
+
+## Set up
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.asp = 0.8, fig.width = 8,
+                      fig.align = 'center', out.width = "80%")
+```
+
+```{r libraries}
+library(fst); library(tidyverse); library(here)
+source(here("code/00_helper_functions/plot_theme.R"))
+data_path <- "data/03_summaries/"
+```
+
+Read model predictions 
+
+```{r}
+d <- read_fst(here(data_path, "lena-pred-lstm-preds.fst"))
+```
+
+## ManyBabies
+
+```{r}
+d_mb <- d %>% filter(dataset == "manybabies")
+```
+
+### ADS vs. CDS average predictability
+
+First, we replicate the key analysis in Rasanen et al. (2018), which compared the average predictability of ADS vs. CDS.
+
+```{r}
+d_mb %>% 
+  filter(is_target_cluster == TRUE) %>% 
+  group_by(seg_id, speech_register) %>% 
+  summarise(m = mean(prob_mass)) %>% 
+  knitr::kable(digits = 2)
+```
+
+### Accuracy predicting next cluster
+
+```{r}
+d_mb %>% 
+  group_by(seg_id, speech_register) %>% 
+  summarise(m = mean(correct_pred)) %>% 
+  knitr::kable(digits = 2)
+```
+
+### Within-utterance predictability
+
+Here, we replicate Rasanen et al. (2018)'s analysis of how the predictability of the intonation changes as a function of position in the utterances, and whether the differences in IDS and ADS would be specific to certain position(s).
+
+Plot the F0 predictability measures as a function of the relative position in the utterance together with the corresponding average F0 contours
+
+```{r}
+
+```
+
+
+## IDSLabel
+
+### ADS vs. CDS average predictability
+
+### Accuracy predicting next cluster
+
+### Within-utterance predictability

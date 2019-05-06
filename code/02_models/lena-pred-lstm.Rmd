@@ -15,7 +15,7 @@ This implementation of the LSTM below is borrowed from this [tutorial] (https://
 
 ```{r libraries}
 library(R.matlab)
-library(keras); library(tfruns); library(cloudml); library(here); library(tidyverse)
+library(keras); library(here); library(tidyverse)
 source(here("code/00_helper_functions/lstm-helpers.R"))
 
 # set up paths to training sequences for original and new pipepline
@@ -35,7 +35,6 @@ n_epochs <- 150
 early_stop <- callback_early_stopping(monitor = "val_loss", min_delta = 0.0001,
                                       patience = 3, verbose = 0, mode = "auto")
 ```
-
 
 ```{r read data}
 if (use_rasanen) {
@@ -127,10 +126,13 @@ Get a predicted probability distribution over each cluster in test sequences and
 preds <- model %>% predict(test_in)
 ```
 
-Tidy up the model predictions for later analysis.
+## Tidy up the model predictions for later analysis.
 
 ```{r}
-d_preds <- preds %>% as_tibble(.name_repair = "universal") %>% janitor::clean_names()
+d_preds <- preds %>% 
+  as_tibble(.name_repair = "universal") %>% 
+  janitor::clean_names()
+
 colnames(d_preds) <- colnames(d_preds) %>% str_replace("x", "shape_")
 
 d_preds %>% 
@@ -139,11 +141,29 @@ d_preds %>%
          time_bin_id = d$test_data$next_cluster_time_bin_id %>% as.character(),
          target_cluster = d$test_data$next_cluster %>% as.character(),
          dataset = d$test_data$next_cluster_dataset %>% as.character()) %>% 
-  select(seg_id, dataset, speech_register, time_bin_id, target_cluster, 
+  select(seg_id, dataset, speech_register, 
+         time_bin_id, target_cluster, 
          everything()) -> d_preds
 
 # tidy the predictions
-d_preds_tidy <- d_preds %>% gather(key = "cluster_shape", value = "prob_mass", shape_1:shape_8)
+first_shape_col <- "shape_1"
+last_shape_col <- colnames(d_preds)[colnames(d_preds) %>% length()]
+
+d_preds_tidy <- d_preds %>% 
+  gather(key = "cluster_shape", 
+         value = "prob_mass", 
+         first_shape_col:last_shape_col)
+```
+
+Get the posterior probability mass placed on the correct cluster, get the predicted cluster, and change dataset label to lowercase.
+
+```{r}
+d_preds_tidy %>% 
+  group_by(seg_id, time_bin_id) %>% 
+  mutate(is_target_cluster = ifelse(str_detect(cluster_shape, target_cluster), TRUE, FALSE),
+         predicted_cluster = which.max(prob_mass),
+         dataset = str_to_lower(dataset),
+         correct_pred = ifelse(target_cluster == predicted_cluster, 1, 0)) -> d_preds_tidy
 ```
 
 Save predictions
