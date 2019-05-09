@@ -5,21 +5,51 @@
 get_pitch_contour <- function(file_path, p_config) {
   file_path_spl <- str_split(file_path, "/", simplify = T)
   
-  analyze(x = file_path, plot = FALSE,
-          pitchFloor = p_config$pitch_min,
-          pitchCeiling = p_config$pitch_max,
-          silence = p_config$silence_min,
-          autocorThres = p_config$autocor_threshold, 
-          pathfinding = p_config$pathfinding_alg,
-          pitchMethods = p_config$pitch_methods, entropyThres = p_config$ent_threshold,
-          step = p_config$step_size, 
-          wn = p_config$window_type,
-          windowLength = p_config$window_length) %>%
-    mutate(dataset = file_path_spl[10],
-           path_to_wav = file_path,
-           speech_register = file_path_spl[11],
-           seg_id = str_remove(file_path_spl[12], '.wav')) %>%
-    select(dataset, speech_register, seg_id, pitch, voiced, time, ampl, path_to_wav)
+  d_out <- analyze(x = file_path, plot = FALSE,
+                   pitchFloor = p_config$pitch_min,
+                   pitchCeiling = p_config$pitch_max,
+                   silence = p_config$silence_min,
+                   autocorThres = p_config$autocor_threshold,
+                   pathfinding = p_config$pathfinding_alg,
+                   pitchMethods = p_config$pitch_methods, entropyThres = p_config$ent_threshold,
+                   step = p_config$step_size,
+                   wn = p_config$window_type,
+                   windowLength = p_config$window_length)
+  
+  tidy_seg_meta(d_out, file_path, file_path_spl)
+}
+
+# tidy audio file metadata based on checking the dataset in the file path
+# returns a data frame with appropriate metadata extracted from file path
+tidy_seg_meta <- function(d, file_path, file_path_spl) {
+  
+  if ( str_detect(file_path, "pilot") ) {
+    d %>%
+      mutate(dataset = file_path_spl[10],
+             path_to_wav = file_path,
+             speech_register = file_path_spl[11],
+             word_category = NA,
+             seg_id = str_remove(file_path_spl[12], '.wav')) %>%
+      select(seg_id, dataset, speech_register, word_category, pitch, voiced, time, ampl, path_to_wav)
+  } else if ( str_detect(file_path, "ManyBabies") ) {
+    d %>%
+      mutate(dataset = str_remove(file_path_spl[9], "-norm"),
+             path_to_wav = file_path,
+             speech_register = file_path_spl[10],
+             word_category = file_path_spl[11],
+             seg_id = str_remove(file_path_spl[12], '.wav')) %>%
+      select(seg_id, dataset, speech_register, word_category, pitch, voiced, time, ampl, path_to_wav)
+  } else if ( str_detect(file_path, "IDSLabel") ) {
+    d %>%
+      mutate(dataset = file_path_spl[10],
+             path_to_wav = file_path,
+             speech_register = file_path_spl[11],
+             word_category = NA,
+             seg_id = str_remove(file_path_spl[12], '.wav')) %>%
+      select(seg_id, dataset, speech_register, word_category, pitch, voiced, time, ampl, path_to_wav)
+  } else {
+    print("invalid specification of dataset in path_to_wav in config file")
+  }
 }
 
 # embed audio player in html knit from Rmd
@@ -49,14 +79,14 @@ filter_voiced <- function(d) {
 }
 
 # use loess model to intrpolate between pitch estimates
-batch_interpolate <- function(d, loess_config) {
+batch_interpolate <- function(d, loess_config, seg_id_blacklist) {
   d %>% 
     filter(!(seg_id %in% seg_id_blacklist)) %>% 
     split(.$seg_id) %>% 
     map_df(interpolate_loess, 
            frac_points = loess_config$frac_points_loess, 
            sample_rate = loess_config$preds_sample_rate) %>% 
-    filter(!is.na(pitch_interpolated)) 
+    filter(!is.na(log_pitch_interp)) 
 }
 
 interpolate_loess <- function(d, sample_rate, frac_points) {
@@ -64,7 +94,7 @@ interpolate_loess <- function(d, sample_rate, frac_points) {
   #t_to_predict <- seq(0, max(d$time), by = sample_rate)
   t_to_predict <- d$time
   
-  preds <- loess(pitch ~ time, 
+  preds <- loess(log_pitch ~ time, 
                  data = d, 
                  span = frac_points) %>% 
     predict(t_to_predict) 
@@ -74,14 +104,15 @@ interpolate_loess <- function(d, sample_rate, frac_points) {
     dataset = d$dataset[1],
     speech_register = d$speech_register[1],
     time = t_to_predict, 
-    pitch_interpolated = preds,
+    log_pitch_original = d$log_pitch,
+    log_pitch_interp = preds,
     pitch_original = d$pitch
   ) 
 }
 
 # creates equally-spaced time bins for each clip
 create_time_bins <- function(d, bin_width) {
-  d_interp %>% 
+  d %>% 
     group_by(seg_id) %>% 
     mutate(time_bin = cut_width(time, 
                                 width = bin_width,
@@ -127,10 +158,10 @@ get_cluster_assignments <- function(df, k, scale_coefs = TRUE) {
   cl <- kmeans(coefs_mat, centers = k)
   
   list(centers = cl$centers %>% as_tibble(rownames = "cluster") %>% 
-         mutate(coef_intercept = 0,  cluster = as.numeric(cluster) - 1,
+         mutate(coef_intercept = 0,  cluster = as.numeric(cluster),
                 coef_linear_unscaled = coef_linear * sd_linear + m_linear,
                 coef_quadratic_unscaled = coef_quadratic * sd_quad + m_quad),
-       d_clusters = df %>% mutate(cluster = cl$cluster - 1) )
+       d_clusters = df %>% mutate(cluster = cl$cluster) )
 }
 
 # add the duration of utterances to the dataframe
@@ -226,11 +257,11 @@ plot_sample_pitch_shapes <- function(d, frac_sample) {
 fit_poly <- function(df, degree, fix = F, xfix, yfix) {
   
   if (fix == T) {
-    coefs <- pracma::polyfix(x = df$time_wrt_bin, y = df$z_log_pitch, n = degree,
+    coefs <- pracma::polyfix(x = df$time_wrt_bin, y = df$z_log_pitch_interp, n = degree,
                              xfix = xfix,
                              yfix = yfix)
   } else {
-    coefs <- pracma::polyfit(x = df$time_wrt_bin, y = df$z_log_pitch, n = degree)
+    coefs <- pracma::polyfit(x = df$time_wrt_bin, y = df$z_log_pitch_interp, n = degree)
   }
   
   tibble(
@@ -256,7 +287,7 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
   
   # get lims for plot
   buffer <- 0.2
-  ylims <- c(min(df_raw$z_log_pitch) - buffer, max(df_raw$z_log_pitch) + buffer)
+  ylims <- c(min(df_raw$z_log_pitch_interp) - buffer, max(df_raw$z_log_pitch_interp) + buffer)
   raw_pitch_max <- max(df_raw$pitch_original) + 100
   # plot raw pitch contour
   orig_raw_pitch <- df_raw %>%
@@ -280,7 +311,7 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
     group_by(seg_id) %>%
     mutate(n_samples = n(),
            x = seq(0, unique(n_samples) - 1, by = 1)) %>%
-    ggplot(aes(time, z_log_pitch)) +
+    ggplot(aes(time, z_log_pitch_interp)) +
     geom_line(size = 1, color = "#756bb1") +
     guides(fill = F) +
     lims(y = ylims) +

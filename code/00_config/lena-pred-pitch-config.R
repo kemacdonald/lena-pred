@@ -1,11 +1,34 @@
 ### Pitch Extraction Config File ####
-
 set.seed(12345)
+
+### Dataset config ----------------------------------------------------
+
+data_set <- "ManyBabies"
+
+path_to_wav <- case_when(
+  data_set == "pilot" ~ "data/02_processed_data/pilot-segments-norm",
+  data_set == "ManyBabies" ~ "data/02_processed_data/ManyBabies-norm",
+  data_set == "IDSLabel" ~ "data/02_processed_data/IDSLabel-norm",
+)
+
+# get the audio filenames
+files_to_analyze <- list.files(here::here(path_to_wav), 
+                               pattern = "*.wav", 
+                               recursive = T)
+
+# add the full path
+files_to_analyze <- here::here(path_to_wav, files_to_analyze)
+
+dataset_config <- list(data_set = data_set, 
+                       path_to_wav = path_to_wav, 
+                       files_to_analyze = files_to_analyze)
+
+### Pitch extraction config ----------------------------------------------------
 
 pitch_detect_config <- list(
   pitch_min = 75, 
-  pitch_max = 650,
-  silence_min = 0.02,
+  pitch_max = 600,
+  silence_min = 0.01,
   step_size =  10,
   window_length = 50,
   window_type = "hanning",
@@ -21,26 +44,17 @@ time_filter_config <- list(
 
 loess_config <- list(
   min_n_samples_loess = 20,
-  frac_points_loess = 0.2,
+  frac_points_loess = 0.1,
   preds_sample_rate = 10)
 
 poly_fit_config <- list(
   degree_poly = 2, 
-  n_q_shapes = 20 )
+  n_q_shapes = 18)
+
+### DNN dataset config ----------------------------------------------------
 
 dnn_dataset_config <- list(
   seq_max_len = 10,     
   skip_val = 1,         
-  prop_train = 0.9,     
+  prop_train = 0.9,
   prop_train_cds = 0.5)
-
-
-# path to audio
-path_to_wav <- "data/02_processed_data/pilot-segments-norm"
-
-files_to_analyze <- list.files(here::here(path_to_wav), 
-                               pattern = "*.wav", 
-                               recursive = T)
-
-# add the full path
-files_to_analyze <- here::here(path_to_wav, files_to_analyze)

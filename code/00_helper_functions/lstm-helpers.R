@@ -13,9 +13,9 @@ generate_lstm_dataset <- function(d,
   unique_clusters <- cluster_sequence %>% unique() %>% sort()
   
   # create a matrix of one-hot vectors encoding
-  cluster_dict <- unique_clusters %>% keras::to_categorical()
+  cluster_dict <- (unique_clusters - 1) %>% keras::to_categorical(num_classes = length(unique_clusters))
   
-  # get the training and test cluster sequences using
+  # get the training and test cluster sequences sampling with prop CDS/ADS in config file
   seg_ids_to_use <- get_sample_seg_ids(d, train_test_split, prop_cds)
   d_train <- d %>% filter(seg_id %in% seg_ids_to_use$train_seg_ids)
   d_test <- d %>% filter(seg_id %in% seg_ids_to_use$test_seg_ids) 
@@ -29,6 +29,32 @@ generate_lstm_dataset <- function(d,
   d_out$test_data$next_cluster_one_hot <- one_hot_encode(d_out$test_data$next_cluster, cluster_dict)
   
   d_out
+}
+
+# create a list of lists that stores all information for training and test
+# each element is a question/answer pairs for the model to learn
+# questions are the previous n pitch shapes
+# answers are th next pitch shape in the sequence
+# we also store some metadata about the utterance: id, time_bin_id (position in utt), and speech register
+make_lstm_sub_sequences <- function(d_input, max_seq_len, skip) {
+  
+  data_seq <- seq(1, length(d_input$cluster) - max_seq_len - 1, by = skip)
+  
+  data_seq %>%
+    map(~ list(
+      prev_cluster_seq = d_input$cluster[.x:(.x + max_seq_len - 1)],
+      next_cluster = d_input$cluster[.x + max_seq_len],
+      next_cluster_seg_id = d_input$seg_id[.x + max_seq_len],
+      next_cluster_time_bin_id = d_input$time_bin_id[.x + max_seq_len],
+      next_cluster_speech_register = d_input$speech_register[.x + max_seq_len],
+      next_cluster_dataset = d_input$dataset[.x + max_seq_len],
+      next_cluster_duration_nbins = d_input$n_segs_utt[.x + max_seq_len]
+    )) %>%
+    transpose()
+}
+
+one_hot_encode <- function(cluster_list, cluster_dict) {
+  cluster_list %>% map(~ cluster_dict[.x, ]) 
 }
 
 get_sample_seg_ids <- function(d, train_test_split, prop_cds) {
@@ -47,31 +73,6 @@ get_sample_seg_ids <- function(d, train_test_split, prop_cds) {
   list(train_seg_ids = train_seg_ids, test_seg_ids = test_seg_ids)
 }
 
-
-# create a list of lists that stores all information for training and test
-# each element is a question/answer pairs for the model to learn
-# questions are the previous n pitch shapes
-# answers are th next pitch shape in the sequence
-# we also store some metadata about the utterance: id, time_bin_id (position in utt), and speech register
-make_lstm_sub_sequences <- function(d_input, max_seq_len, skip) {
-  
-  data_seq <- seq(1, length(d_input$cluster) - max_seq_len - 1, by = skip)
-  
-  data_seq %>%
-    map(~  list(
-      prev_cluster_seq = d_input$cluster[.x:(.x + max_seq_len - 1)],
-      next_cluster = d_input$cluster[.x + max_seq_len],
-      next_cluster_seg_id = d_input$seg_id[.x + max_seq_len],
-      next_cluster_time_bin_id = d_input$time_bin_id[.x + max_seq_len],
-      next_cluster_speech_register = d_input$speech_register[.x + max_seq_len],
-      next_cluster_dataset = d_input$dataset[.x + max_seq_len])
-    ) %>%
-    transpose()
-}
-
-one_hot_encode <- function(cluster_list, cluster_dict) {
-  cluster_list %>% map(~ cluster_dict[.x, ]) 
-}
 
 sample_mod <- function(preds, temperature = 1){
   preds <- log(preds)/temperature

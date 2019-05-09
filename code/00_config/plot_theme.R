@@ -1,5 +1,3 @@
-library(ggplot2); library(ggthemes); library(ggrepel); library(cowplot)
-
 # generating new theme
 kyle_theme <- function(base_size = 16,
                       base_family = "",

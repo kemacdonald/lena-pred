@@ -1,0 +1,89 @@
+---
+title: "Lena-pred Data Analysis Models"
+output: html_document
+---
+
+## Modeling set up
+
+To compare the output of the LSTM between CDS and ADS, we will use the brms (Burkner, 2017) R package to fit Bayesian mixed-effects regression models. The mixed-effects approach will allow us to model the nested structure of our data – multiple recordings for each child and for each type of utterance (CDS vs. ADS). We will use Bayesian estimation to quantify uncertainty in our estimates, which we communicate using a 95% Highest Density Interval (HDI), providing a range of credible values for the differences between CDS and ADS, given the data and model. 
+
+## ManyBabies
+
+### ADS vs. CDS average predictability
+
+Output variable is the probability of correct F0 prediction, which is bound between [0, 1], so we use Beta regression. The key prediction is that th probability of correct F0 prediction will be lower for CDS compared to ADS, indicating that the LSTM put a lower posterior probability on the correct F0 trajectory when processing CDS.
+
+```{r beta reg}
+m_prob_priors <- get_prior(m_prob ~ speech_register + (1 + speech_register|speaker) + 
+                             (1 + speech_register | utt_type), 
+                         data = d, 
+                         family = "beta")
+
+m_prob_fit <- brm(m_prob ~ speech_register + (1 + speech_register|speaker) + (1 + speech_register | utt_type), 
+                 data = d, 
+                 family = "beta",
+                 prior = m_prob_priors)
+```
+
+Also analyze perplexity. 
+
+
+```{r gamma reg}
+m_perp_priors <- get_prior(m_prob ~ speech_register + (1 + speech_register|speaker) + 
+                             (1 + speech_register | utt_type), 
+                         data = d, 
+                         family = "Gamma")
+
+m_perp_fit <- brm(m_prob ~ speech_register + (1 + speech_register|speaker) + (1 + speech_register | utt_type), 
+                 data = d, 
+                 family = "Gamma",
+                 prior = m_perp_priors)
+```
+
+
+### Accuracy predicting next cluster
+
+Classification accuracy, which is a binary outcome, so we uss logistic regression, The key prediction is that accuracy will be lower for CDS compared to ADS.
+
+```{r logistic reg}
+m_acc_priors <- get_prior(m_acc ~ speech_register + (1 + speech_register|speaker) + 
+                            (1 + speech_register | utt_type), 
+                         data = d, 
+                         family = "binomial")
+
+m_acc_fit <- brm(m_acc ~ speech_register + (1 + speech_register|speaker) + (1 + speech_register | utt_type), 
+                 data = d, 
+                 family = "binomial",
+                 prior = m_acc_priors)
+```
+
+### Predictability as a function of utterance length
+
+Within- utterance temporal predictability. The probability of correct F0 prediction as a function of utterance duration. A probability, bound between [0, 1], so we again use Beta regression. We predict an interaction: that the probability of correct F0 prediction for ADS will increase *more* as a function of utterance duration as compared to CDS, indicating that CDS is harder to predict later in an utterance.
+
+```{r beta reg duration}
+m_prob_priors <- get_prior(m_prob ~ speech_register * duration_ms + (1 + speech_register|speaker) + 
+                             (1 + speech_register | utt_type), 
+                         data = d, 
+                         family = "beta")
+
+m_prob_fit <- brm(m_prob ~ speech_register * duration_ms + (1 + speech_register|speaker) + 
+                    (1 + speech_register | utt_type), 
+                 data = d, 
+                 family = "beta",
+                 prior = m_prob_priors)
+```
+
+
+
+## IDSLabel
+
+### Set up
+
+### ADS vs. CDS average predictability
+
+### Accuracy predicting next cluster
+
+### Predictability as a function of utterance length
+
+
