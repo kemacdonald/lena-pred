@@ -7,7 +7,7 @@ library(keras)
 library(fst); library(here)
 library(ggthemes); library(ggrepel); library(cowplot)
 library(knitr)
-library(brms)
+library(brms); library(tidybayes)
 library(tidyverse)
 
 ## Knitr Chunk options

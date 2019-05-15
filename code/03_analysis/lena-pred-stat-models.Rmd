@@ -7,6 +7,50 @@ output: html_document
 
 To compare the output of the LSTM between CDS and ADS, we will use the brms (Burkner, 2017) R package to fit Bayesian mixed-effects regression models. The mixed-effects approach will allow us to model the nested structure of our data – multiple recordings for each child and for each type of utterance (CDS vs. ADS). We will use Bayesian estimation to quantify uncertainty in our estimates, which we communicate using a 95% Highest Density Interval (HDI), providing a range of credible values for the differences between CDS and ADS, given the data and model. 
 
+```{r libraries and config}
+source(here::here("code/00_config/lena-pred-libraries.R"))
+source(here::here("code/00_config/lena-pred-pitch-config.R"))
+source(here("code/00_helper_functions/lstm-helpers.R"))
+source(here("code/00_helper_functions/plot_helpers.R"))
+```
+
+Read model predictions 
+
+```{r}
+data_path <- paste0("data/03_summaries/", dataset_config$data_set)
+d_list <- read_rds(here(data_path, "lena-pred-lstm-preds.rds"))
+```
+
+```{r}
+delta_val <- 0.9
+```
+
+
+```{r}
+get_speaker_id_mb <- function(s) {str_extract(s, "(?<=_?)\\d+")}
+
+d <- extract_preds(d_list)
+
+d <- d %>% mutate(speaker_id = get_speaker_id_mb(seg_id),
+                  duration_ms = as.numeric(duration_ms)) 
+```
+
+Aggregate accuracy and posterior probability over correct cluster:
+
+```{r}
+seg_ms <- d %>% 
+  filter(is_target_cluster == TRUE) %>% 
+  group_by(seg_id, speech_register, n_qshapes, speaker_id, duration_ms) %>% 
+  summarise(m_prob = mean(prob_mass),
+            m_acc = mean(correct_pred)) %>% 
+  group_by(seg_id, speech_register, speaker_id, duration_ms) %>% 
+  summarise(m_prob = mean(m_prob),
+            m_acc = mean(m_acc)) 
+
+# add scaled duration value
+seg_ms$duration_scaled <- scale(seg_ms$duration_ms)
+```
+
 ## ManyBabies
 
 ### ADS vs. CDS average predictability
@@ -14,47 +58,59 @@ To compare the output of the LSTM between CDS and ADS, we will use the brms (Bur
 Output variable is the probability of correct F0 prediction, which is bound between [0, 1], so we use Beta regression. The key prediction is that th probability of correct F0 prediction will be lower for CDS compared to ADS, indicating that the LSTM put a lower posterior probability on the correct F0 trajectory when processing CDS.
 
 ```{r beta reg}
-m_prob_priors <- get_prior(m_prob ~ speech_register + (1 + speech_register|speaker) + 
-                             (1 + speech_register | utt_type), 
-                         data = d, 
+m_prob_priors <- get_prior(m_prob ~ speech_register + (1 + speech_register|speaker_id), 
+                         data = seg_ms, 
                          family = "beta")
 
-m_prob_fit <- brm(m_prob ~ speech_register + (1 + speech_register|speaker) + (1 + speech_register | utt_type), 
-                 data = d, 
+m_prob_fit <- brm(m_prob ~ speech_register + (1 + speech_register|speaker_id), 
+                 data = seg_ms, 
                  family = "beta",
-                 prior = m_prob_priors)
+                 prior = m_prob_priors,
+                 control = list(adapt_delta = delta_val))
+
+results_obj <- list(prob_model = get_bda_results(m_prob_fit))
 ```
 
-Also analyze perplexity. 
+Also analyze perplexity.
 
-
-```{r gamma reg}
-m_perp_priors <- get_prior(m_prob ~ speech_register + (1 + speech_register|speaker) + 
+```{r gamma reg, include=FALSE}
+m_perp_priors <- get_prior(m_perp ~ speech_register + (1 + speech_register|speaker) + 
                              (1 + speech_register | utt_type), 
                          data = d, 
                          family = "Gamma")
 
-m_perp_fit <- brm(m_prob ~ speech_register + (1 + speech_register|speaker) + (1 + speech_register | utt_type), 
+m_perp_fit <- brm(m_perp ~ speech_register + (1 + speech_register|speaker) + (1 + speech_register | utt_type), 
                  data = d, 
                  family = "Gamma",
                  prior = m_perp_priors)
 ```
 
-
 ### Accuracy predicting next cluster
 
-Classification accuracy, which is a binary outcome, so we uss logistic regression, The key prediction is that accuracy will be lower for CDS compared to ADS.
+Classification accuracy, which is a binary outcome, so we use logistic regression, The key prediction is that accuracy will be lower for CDS compared to ADS.
 
 ```{r logistic reg}
-m_acc_priors <- get_prior(m_acc ~ speech_register + (1 + speech_register|speaker) + 
-                            (1 + speech_register | utt_type), 
-                         data = d, 
+d_logit <- d %>% 
+  filter(n_qshapes == 16) %>% # select just one dataset of q-shapes
+  distinct(seg_id, speaker_id, speech_register, time_bin_id, 
+           correct_pred, target_cluster) %>% 
+  group_by(speaker_id, speech_register) %>% 
+  summarise(n_correct = sum(correct_pred),
+            n_bins = n(),
+            prop_correct = n_correct / n_bins)
+
+
+m_acc_priors <- get_prior(n_correct | trials(n_bins) ~ speech_register + (1 + speech_register|speaker_id),
+                         data = d_logit, 
                          family = "binomial")
 
-m_acc_fit <- brm(m_acc ~ speech_register + (1 + speech_register|speaker) + (1 + speech_register | utt_type), 
-                 data = d, 
+m_acc_fit <- brm(n_correct | trials(n_bins) ~ speech_register + (1 + speech_register|speaker_id),
+                 data = d_logit, 
                  family = "binomial",
-                 prior = m_acc_priors)
+                 prior = m_acc_priors,
+                 control = list(adapt_delta = delta_val))
+
+results_obj$acc_model <- get_bda_results(m_acc_fit)
 ```
 
 ### Predictability as a function of utterance length
@@ -62,18 +118,65 @@ m_acc_fit <- brm(m_acc ~ speech_register + (1 + speech_register|speaker) + (1 + 
 Within- utterance temporal predictability. The probability of correct F0 prediction as a function of utterance duration. A probability, bound between [0, 1], so we again use Beta regression. We predict an interaction: that the probability of correct F0 prediction for ADS will increase *more* as a function of utterance duration as compared to CDS, indicating that CDS is harder to predict later in an utterance.
 
 ```{r beta reg duration}
-m_prob_priors <- get_prior(m_prob ~ speech_register * duration_ms + (1 + speech_register|speaker) + 
-                             (1 + speech_register | utt_type), 
-                         data = d, 
+m_prob_priors <- get_prior(m_prob ~ speech_register * duration_scaled + (1 + speech_register|speaker_id), 
+                         data = seg_ms, 
                          family = "beta")
 
-m_prob_fit <- brm(m_prob ~ speech_register * duration_ms + (1 + speech_register|speaker) + 
-                    (1 + speech_register | utt_type), 
-                 data = d, 
-                 family = "beta",
-                 prior = m_prob_priors)
+m_prob_fit <- brm(m_prob ~ speech_register * duration_scaled + (1 + speech_register|speaker_id), 
+                  data = seg_ms, 
+                  family = "beta",
+                  prior = m_prob_priors,
+                  control = list(adapt_delta = delta_val))
+
 ```
 
+```{r}
+
+get_bda_results(m_prob_fit, d = seg_ms, mod_type = "duration") -> blah
+
+
+get_bda_results <- function(m_fit, d, mod_type) {
+  
+  post <- posterior_samples(m_fit)
+  
+  if (mod_type=="duration") {
+    dur_m <- mean(d$duration_ms)
+    dur_sd <- sd(d$duration_ms)
+    
+    m_summary <- post %>% 
+      mutate(p_ADS = inv_logit_scaled(b_Intercept),
+             p_IDS = inv_logit_scaled(b_Intercept + b_speech_registerIDS),
+             diff_ADS_IDS = p_ADS - p_IDS,
+             b_duration_ms = b_duration_scaled * dur_sd + dur_m,
+             b_dur_int_ms = b_speech_registerIDS:duration_scaled * dur_sd + dur_m,
+             sample_id = 1:nrow(.)) %>%  
+      select(sample_id, p_ADS, p_IDS, diff_ADS_IDS, b_duration_ms, b_dur_int_ms) %>% 
+      gather(key = "type", value = "value", -sample_id) %>% 
+      group_by(type) %>% 
+      median_hdi(.width = 0.95)
+    
+  } else {
+    m_summary <- post %>% 
+      mutate(p_ADS = inv_logit_scaled(b_Intercept),
+             p_IDS = inv_logit_scaled(b_Intercept + b_speech_registerIDS),
+             diff_ADS_IDS = p_ADS - p_IDS,
+             sample_id = 1:nrow(.)) 
+    select(sample_id, p_ADS, p_IDS, diff_ADS_IDS) %>% 
+      gather(key = "type", value = "value", -sample_id) %>% 
+      group_by(type) %>% 
+      median_hdi(.width = 0.95)
+  }
+  
+  model_results <- list(post_samples = post, summary = m_summary)
+}
+
+```
+
+Save model outputs
+
+```{r}
+write_rds(results_obj, here("lena-pred-bda-results.rds"))
+```
 
 
 ## IDSLabel

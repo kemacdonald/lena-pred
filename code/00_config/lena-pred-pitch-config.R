@@ -27,7 +27,7 @@ dataset_config <- list(data_set = data_set,
 
 pitch_detect_config <- list(
   pitch_min = 75, 
-  pitch_max = 600,
+  pitch_max = 650,
   silence_min = 0.01,
   step_size =  10,
   window_length = 50,
@@ -49,12 +49,5 @@ loess_config <- list(
 
 poly_fit_config <- list(
   degree_poly = 2, 
-  n_q_shapes = 18)
-
-### DNN dataset config ----------------------------------------------------
-
-dnn_dataset_config <- list(
-  seq_max_len = 10,     
-  skip_val = 1,         
-  prop_train = 0.9,
-  prop_train_cds = 0.5)
+  n_q_shapes = seq(8, 24, by = 4)
+)

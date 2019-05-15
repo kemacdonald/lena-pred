@@ -7,9 +7,8 @@ output: html_document
 
 ```{r libraries}
 source(here::here("code/00_config/lena-pred-libraries.R"))
-source(here("code/00_config/plot_theme.R"))
 source(here("code/00_config/lena-pred-pitch-config.R"))
-source(here("code/00_helper_functions/pitch_helpers.R"))
+source(here("code/00_helper_functions/plot_helpers.R"))
 read_path <- paste0("data/03_summaries/", dataset_config$data_set)
 ```
 

@@ -1,4 +1,5 @@
 #### LSTM Config ----------------------------------------
+# These are config parameters for the LSTM 
 source(here("code/00_config/lena-pred-pitch-config.R"))
 use_rasanen <- FALSE
 
@@ -13,11 +14,12 @@ lstm_config <- list(
   lstm_units = 30,
   lstm_output_dim = 30,
   n_epochs = 150,
-  early_stop = callback_early_stopping(monitor = "val_loss", min_delta = 0.0001,
-                                       patience = 3, verbose = 0, mode = "auto"),
+  early_stop = callback_early_stopping(monitor = "val_loss", 
+                                       min_delta = 0.0001, patience = 3, 
+                                       verbose = 0, mode = "auto"),
   batch_size = 10,
   epochs = 60,
-  validation_split = 0.3, # ask Okko about validation split
+  validation_split = 0.15, # ask Okko about validation split
   shuffle = TRUE
 )
 
@@ -31,8 +33,6 @@ if (use_rasanen) {
   lstm_config$d <-readMat(here(read_path_rasanen, "lstm_traindata.mat"))  
 } else {
   lstm_config$d <- read_rds(here(read_path, "lena-pred-lstm-train-test.rds"))
-  lstm_config$unique_clusters <- seq(0, poly_fit_config$n_q_shapes - 1, by <- 1)
   lstm_config$n_clusters <- poly_fit_config$n_q_shapes
   lstm_config$input_shape <- poly_fit_config$n_q_shapes + 1
-  lstm_config$input_length <- lstm_config$d$train_data$prev_cluster_seq[[1]] %>% length()
 }
