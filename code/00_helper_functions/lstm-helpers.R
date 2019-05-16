@@ -1,9 +1,6 @@
-### LSTM helpers ---------------------------------------------------
+## LSTM helpers ---------------------------------------------------
 
-generate_lstm_dataset <- function(d, segs_train_test,
-                                  max_seq_len, skip, 
-                                  train_test_split = 0.9,
-                                  prop_cds = 0.5) {
+generate_lstm_dataset <- function(d, d_train_test, max_seq_len, skip) {
   
   # extract the cluster sequence as character string
   cluster_sequence <- d %>% pull(cluster)
@@ -14,10 +11,9 @@ generate_lstm_dataset <- function(d, segs_train_test,
   # create a matrix of one-hot vectors encoding
   cluster_dict <- (unique_clusters - 1) %>% keras::to_categorical(num_classes = length(unique_clusters))
   
-  # get the training and test cluster sequences sampling with prop CDS/ADS in config file
-  #d_train_test <- get_train_test(d, train_test_split, prop_cds)
+  # get the training and test cluster sequences 
   d_train <- d_train_test$d_train %>% left_join(d, by = c("seg_id", "time_bin_id", "speech_register", "duration_ms"))
-  d_test <- d_train_test$d_test %>% left_join(d, by = c("seg_id", "time_bin_id", "speech_register"))
+  d_test <- d_train_test$d_test %>% left_join(d, by = c("seg_id", "time_bin_id", "speech_register", "duration_ms"))
   
   # create the sub-sequences based on max_seq_len and skip parameters
   d_out <- list(train_data = make_lstm_sub_sequences(d_train, max_seq_len, skip),
@@ -65,45 +61,73 @@ one_hot_encode <- function(cluster_list, cluster_dict) {
   cluster_list %>% map(~ cluster_dict[.x, ]) 
 }
 
-get_train_test <- function(d, train_test_split, prop_cds) {
+get_train_test <- function(d, train_test_split, prop_cds_train, prop_cds_test) {
+  
   d_seg_ids <- d %>% distinct(seg_id, speech_register) 
   n_total <- nrow(d_seg_ids)
-  n_to_sample_train <- as.integer(n_total * train_test_split)
-  n_per_speech_reg_train <- ceiling(n_to_sample_train * prop_cds)
-  n_to_sample_test <- n_total - n_to_sample_train
   n_speakers <- d %>% distinct(speaker_id) %>% nrow()
-  n_per_speech_reg_test <- ceiling( (n_to_sample_test * prop_cds) / n_speakers )
   
-  # get test data
+  n_to_sample_train <- as.integer(n_total * train_test_split)
+  n_per_speech_reg_train <- ceiling(n_to_sample_train * prop_cds_train)
+  
+  n_to_sample_test <- n_total - n_to_sample_train
+  n_per_speech_reg_test <- ceiling( (n_to_sample_test * prop_cds_test) / n_speakers )
+  
+  # get seg ids for test data and add a sample id to keep track 
   test_seg_ids <- d %>%
     select(seg_id, speech_register, speaker_id) %>%
-    group_by(speech_register, speaker_id) %>%  
+    group_by(speech_register, speaker_id) %>%
     sample_n(n_per_speech_reg_test, replace = FALSE) %>%
-    pull(seg_id)
+    ungroup() %>% 
+    select(seg_id) %>% 
+    mutate(sample_id = 1:n())
   
-  d_test <- d %>% filter(seg_id %in% test_seg_ids) %>% select(seg_id, speech_register, time_bin_id)
-  d_train <- sample_training_data(d, test_seg_ids) %>% select(seg_id, speech_register, time_bin_id, duration_ms)
+  d_test <- d %>%
+    filter(seg_id %in% test_seg_ids$seg_id) %>%
+    select(seg_id, speech_register, time_bin_id, duration_ms) %>%
+    left_join(., test_seg_ids, by = c("seg_id"))
+  
+  d_train <- sample_training_data(d, test_seg_ids, prop_cds_train) %>%
+    select(seg_id, speech_register, time_bin_id, duration_ms, sample_id)
   
   list(d_train = d_train, d_test = d_test)
 }
 
 # get train data
-sample_training_data <- function(d, test_seg_list) {
+sample_training_data <- function(d, test_seg_list, prop_cds) {
+  # get train seg ids by removing ids that are already in test pool
   train_segs <- d %>% 
     filter(!(seg_id %in% test_seg_list)) %>% 
     distinct(seg_id, speech_register)
   
-  d_train_final <- d %>% filter(seg_id %in% train_segs$seg_id, speech_register == "IDS")
-  d_train_ads <- d %>% filter(seg_id %in% train_segs$seg_id, speech_register == "ADS")
-  train_ads_id_list <- train_segs %>% filter(speech_register == "ADS") %>% pull(seg_id)
-  
-  ids_duration <- get_reg_duration(d_train_final, "IDS")
-  ads_duration <- 0
-  
-  while(ads_duration < ids_duration) {
-    ads_id <- sample(train_ads_id_list, size = 1)
-    d_train_final <- bind_rows(d_train_final, d_train_ads %>% filter(seg_id == ads_id))
-    ads_duration <- get_reg_duration(d_train_final, "ADS")
+  # handle a couple of boundary cases prop_cds is 0 or 1
+  if (prop_cds == 0) {
+    d_train_final <- d %>% filter(seg_id %in% train_segs$seg_id, speech_register == "ADS")
+  } else if(prop_cds == 1) {
+    d_train_final <- d %>% filter(seg_id %in% train_segs$seg_id, speech_register == "IDS")
+    # this section handles all other cases 
+  } else {
+    d_train_final <- d %>% 
+      filter(seg_id %in% train_segs$seg_id, speech_register == "IDS") %>% 
+      distinct(seg_id, speech_register) %>% 
+      mutate(sample_id = 1:n()) %>% 
+      left_join(., d)
+    
+    d_train_ads <- d %>% filter(seg_id %in% train_segs$seg_id, speech_register == "ADS") # get the ads training data
+    train_ads_id_list <- train_segs %>% filter(speech_register == "ADS") %>% pull(seg_id) # get the pool of ADS seg ids
+    
+    ids_duration <- get_reg_duration(d_train_final, "IDS")
+    ads_duration <- 0
+    samp_id <- max(d_train_final$sample_id) + 1
+    
+    while( round((ids_duration / (ads_duration + ids_duration)), 3) > prop_cds ) {
+      ads_id <- sample(train_ads_id_list, size = 1, replace = FALSE)
+      ads_data <- d_train_ads %>% filter(seg_id == ads_id) %>% mutate(sample_id = samp_id)
+      d_train_final <- bind_rows(d_train_final, ads_data)
+      ads_duration <- get_reg_duration(d_train_final, "ADS")
+      samp_id <- samp_id + 1
+      print(round((ids_duration / (ads_duration + ids_duration)), 3))
+    }
   }
   d_train_final
 }
@@ -112,10 +136,10 @@ sample_training_data <- function(d, test_seg_list) {
 get_reg_duration <- function(d, register) {
   d %>% 
     filter(speech_register == register) %>% 
-    distinct(seg_id, duration_ms) %>% 
-    pull(duration_ms) %>% sum()
+    distinct(sample_id, duration_ms) %>% 
+    pull(duration_ms) %>% 
+    sum()
 }
-
 
 sample_mod <- function(preds, temperature = 1){
   preds <- log(preds)/temperature

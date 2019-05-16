@@ -51,3 +51,14 @@ poly_fit_config <- list(
   degree_poly = 2, 
   n_q_shapes = seq(8, 24, by = 4)
 )
+
+### DNN dataset config ----------------------------------------------------
+# These are config parameters for the dnn dataset generator
+
+dnn_dataset_config <- list(
+  seq_max_len = 10,     
+  skip_val = 1,         
+  prop_train = 0.9,
+  prop_train_cds = 0.5,
+  prop_test_cds = 0.5
+)

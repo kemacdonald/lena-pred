@@ -1,5 +1,5 @@
 ---
-title: "Lena-pred Visualization"
+title: "Lena-pred Data Visualization"
 output: html_document
 ---
 
@@ -22,16 +22,7 @@ d_list <- read_rds(here(data_path, "lena-pred-lstm-preds.rds"))
 ## ManyBabies
 
 ```{r}
-d <- extract_preds(d_list)
-```
-
-```{r}
-get_speaker_id_mb <- function(s) {str_extract(s, "(?<=_?)\\d+")}
-
-d <- d %>% mutate(speaker_id = get_speaker_id_mb(seg_id), duration_ms = as.numeric(duration_ms)) 
-
-# temp fix
-d <- d %>% mutate(is_target_cluster = ifelse(str_extract(cluster_shape, "\\d+") == target_cluster, TRUE, FALSE))
+d <- extract_preds(d_list) %>% mutate(duration_ms = as.numeric(duration_ms)) 
 ```
 
 ### ADS vs. CDS average predictability
@@ -64,12 +55,11 @@ Plot the F0 predictability measures as a function of duration of the utterance f
 
 ```{r}
 seg_ms %>% 
-  filter(duration_ms <= 20000, n_qshapes == 12) %>% 
   ggplot(aes(x = duration_ms / 1000, y = m_prob, color = speech_register)) +
-  geom_point(alpha = 0.6, size = 2) +
+  geom_point(alpha = 0.4, size = 2) +
   geom_smooth(method = "lm", size = 1.5) +
   scale_color_ptol() +
-  lims(y=c(0, 0.85)) +
+  lims(y=c(0, 1.01)) +
   labs(x = "Utterance Duration (sec)", y = "Mean Prob. of Correct Prediction")
 ```
 
@@ -77,10 +67,10 @@ seg_ms %>%
 
 ```{r}
 n_bins <- 10
-n_shapes <- 12
+n_shapes <- 16
 
 d_within_utt <- d %>% 
-  filter(is_target_cluster == TRUE, n_qshapes == n_shapes) %>% 
+  filter(is_target_cluster == TRUE, n_qshapes == n_shapes, duration_ms <= 7000) %>% 
   mutate(time_bin_id_num = as.numeric(time_bin_id)) %>% 
   group_by(seg_id) %>% 
   mutate(time_bin_within_utt = cut_interval(time_bin_id_num, n = n_bins, labels = F))
@@ -99,7 +89,7 @@ ms_within_utt %>%
   geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper)) +
   geom_line(size = 1) +
   scale_color_ptol() +
-  lims(y = c(0, 0.5)) +
+  lims(y = c(0, NA)) +
   labs(x = "Relative position in Utterance", y = "Mean Prob. Correct Prediction") +
   theme(legend.position = "top")
 ```
