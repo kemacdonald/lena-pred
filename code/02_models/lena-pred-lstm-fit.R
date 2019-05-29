@@ -1,31 +1,33 @@
-### Train LSTM sequence prediction models ------------------------------
+# Train LSTM sequence prediction models ------------------------------
 
 # Neural language models are designed to learn how to predict the next 
 # word in a sequence given the prior context. In our case, words are 
 # cluster assignments for each 100-ms segment of pitch contour.
 
-# This implementation of the LSTM is borrowed from this tutorial: 
+# This implementation of the LSTM is adapted from this tutorial: 
 # https://keras.rstudio.com/articles/examples/lstm_text_generation.html
 
 source(here::here("code/00_config/lena-pred-libraries.R"))
-source(here("code/00_helper_functions/plot_helpers.R"))
-source(here("code/00_helper_functions/lstm-helpers.R"))
 source(here("code/00_config/lena-pred-dnn-config.R"))
+source(here("code/00_helper_functions/lstm-train-h.R"))
 
-# extract vectorized input data for each num q-shapes
-inputs <- lstm_config$d
+# get data and flatten to a one level list of datasets to fit
+# should be n_prop_cds X n_q_shapes datasets in the list
+d_list <- read_rds(here(paths_config$lstm_sum_path, 
+                        "lena-pred-lstm-train-test.rds")) %>% 
+  flatten() 
 
-# create list of models for each dataset
-mods <- lstm_config$d %>% map(create_lstm, lstm_config)
+# create list of models for each dataset: prop CDS and n-qshapes
+mods <- d_list[1:5] %>% map(create_lstm, lstm_config)
 
 # train model and generate predictions 
-# the train lstm function also does some post-processing 
-# of the model predictions
-results_obj <- pmap(list(mods, names(mods), inputs), 
-                    .f = train_lstm, 
-                    lstm_config)
+# the train lstm function also handles post-processing 
+# and tidying the model predictions
+results_obj <- pmap(list(mods, names(mods), d_list[1:5]), 
+                    .f = safe_train_lstm, 
+                    lstm_config = lstm_config)
 
 # save predictions for later analysis
 write_rds(results_obj, 
-          here(read_path, "lena-pred-lstm-preds.rds"), 
+          here(paths_config$lstm_sum_path, "lena-pred-lstm-preds.rds"), 
           compress = "gz")  

@@ -27,16 +27,10 @@ do
   # loop over directories and normalize audio files in each dir --------------------------
   for label_type in */
   do
-    output_dir=../../../../02_processed_data/$dataset-norm/$speech_type/$label_type
+    output_dir=../../../../02_processed_data/$dataset-norm/$speech_type$label_type
     cd "$label_type"
     ffmpeg-normalize *.wav -ar 16000 -of "$output_dir" -ext wav
     cd ..
   done
   cd ..
 done
-
-
-
-
-
-

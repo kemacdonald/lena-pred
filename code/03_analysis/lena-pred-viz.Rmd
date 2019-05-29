@@ -5,32 +5,49 @@ output: html_document
 
 ## Set up
 
-```{r libraries and config}
+```{r libraries and config, warning=FALSE, include=FALSE}
 source(here::here("code/00_config/lena-pred-libraries.R"))
-source(here::here("code/00_config/lena-pred-pitch-config.R"))
-source(here("code/00_helper_functions/plot_helpers.R"))
-source(here("code/00_helper_functions/lstm-helpers.R"))
+source(here("code/00_config/lena-pred-pitch-config.R"))
+source(here("code/00_helper_functions/plotting-h.R"))
+source(here("code/00_helper_functions/analysis-h.R"))
+source(here("code/00_helper_functions/pitch-extraction-h.R"))
 ```
 
 Read model predictions 
 
 ```{r}
-data_path <- paste0("data/03_summaries/", dataset_config$data_set)
-d_list <- read_rds(here(data_path, "lena-pred-lstm-preds.rds"))
+d_list <- read_rds(here(paths_config$lstm_sum_path, "lena-pred-lstm-preds.rds"))
+d_persist <- read_csv(here(paths_config$lstm_sum_path, "lena-pred-persist-results-mb.csv"))
 ```
 
 ## ManyBabies
 
 ```{r}
-d <- extract_preds(d_list) %>% mutate(duration_ms = as.numeric(duration_ms)) 
+d <- map2_df(d_list, names(d_list), .f = extract_preds)
+d$speech_register <- factor(d$speech_register) %>% fct_rev()
 ```
 
 ### ADS vs. CDS average predictability
 
-First, we replicate the key analysis in Rasanen et al. (2018), which compared the average predictability of ADS vs. CDS.
+Baseline persistence model results. 
 
 ```{r}
-seg_ms <- d %>% 
+d_persist %>% 
+  ggplot(aes(x = as_factor(n_qshapes), y = acc, 
+             color = as_factor(prop_cds),
+             group = prop_cds)) +
+  geom_point(size = 1.5) +
+  geom_line(size = 1) +
+  scale_color_ptol() +
+  labs(x = "Num of Q-shapes", y = "Mean Accuracy", 
+       color = "Prop. CDS in Training",
+       title = "Persistence Model")
+```
+
+replicate the key analysis in Rasanen et al. (2018), which compared the average predictability of ADS vs. CDS.
+
+```{r}
+mb_ms <- d %>% 
   filter(is_target_cluster == TRUE) %>% 
   group_by(seg_id, speech_register, n_qshapes, speaker_id, duration_ms) %>% 
   summarise(m_prob = mean(prob_mass),
@@ -38,13 +55,13 @@ seg_ms <- d %>%
 ```
 
 ```{r}
-plot_model_output(seg_ms, col_name = m_prob)
+plot_model_output(mb_ms, col_name = m_prob)
 ```
 
 ### Accuracy predicting next cluster
 
 ```{r}
-plot_model_output(seg_ms, col_name = m_acc)
+plot_model_output(mb_ms, col_name = m_acc)
 ```
 
 ### Predictability as a function of utterance length
@@ -54,8 +71,8 @@ Here, we replicate Rasanen et al. (2018)'s analysis of how the predictability of
 Plot the F0 predictability measures as a function of duration of the utterance for both speech registers.
 
 ```{r}
-seg_ms %>% 
-  ggplot(aes(x = duration_ms / 1000, y = m_prob, color = speech_register)) +
+mb_ms %>% 
+  ggplot(aes(x = as.numeric(duration_ms) / 1000, y = m_prob, color = speech_register)) +
   geom_point(alpha = 0.4, size = 2) +
   geom_smooth(method = "lm", size = 1.5) +
   scale_color_ptol() +
@@ -67,10 +84,10 @@ seg_ms %>%
 
 ```{r}
 n_bins <- 10
-n_shapes <- 16
+n_shapes <- 8
 
 d_within_utt <- d %>% 
-  filter(is_target_cluster == TRUE, n_qshapes == n_shapes, duration_ms <= 7000) %>% 
+  filter(is_target_cluster == TRUE, n_qshapes == n_shapes) %>% 
   mutate(time_bin_id_num = as.numeric(time_bin_id)) %>% 
   group_by(seg_id) %>% 
   mutate(time_bin_within_utt = cut_interval(time_bin_id_num, n = n_bins, labels = F))
@@ -92,6 +109,95 @@ ms_within_utt %>%
   lims(y = c(0, NA)) +
   labs(x = "Relative position in Utterance", y = "Mean Prob. Correct Prediction") +
   theme(legend.position = "top")
+```
+
+```{r}
+split_val <- 3000
+
+d_within_utt <- d_within_utt %>% 
+  mutate(utt_length_type = ifelse(duration_ms <= split_val, "short", "long"))
+
+ss_within_utt <- d_within_utt %>% 
+  group_by(seg_id, speaker_id, time_bin_within_utt, speech_register, utt_length_type) %>% 
+  summarise(m_prob = mean(prob_mass))
+
+ms_within_utt <- ss_within_utt %>% 
+  group_by(time_bin_within_utt, speech_register, utt_length_type) %>% 
+  tidyboot_mean(column = m_prob) 
+
+ms_within_utt %>% 
+  ggplot(aes(x = as_factor(time_bin_within_utt), y = empirical_stat, 
+             color = speech_register, group = speech_register)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_jitter(0.2)) +
+  geom_line(size = 1,
+            position = position_jitter(0.2)) +
+  scale_color_ptol() +
+  lims(y = c(0, NA)) +
+  labs(x = "Relative position in Utterance", y = "Mean Prob. Correct") +
+  theme(legend.position = "top") +
+  facet_wrap(~fct_rev(utt_length_type), ncol = 2)
+```
+
+### Predictability as a function of CDS in training
+
+```{r}
+ss_prop_train <- d %>% 
+  filter(is_target_cluster == TRUE) %>% 
+  group_by(seg_id, speech_register, prop_cds_train, speaker_id, duration_ms) %>% 
+  summarise(m_prob = mean(prob_mass),
+            m_acc = mean(correct_pred))
+
+ms_prop_train <- ss_prop_train %>% 
+  group_by(prop_cds_train, speech_register) %>% 
+  tidyboot_mean(column = m_prob) 
+
+ms_prop_train %>% 
+  ggplot(aes(x = as_factor(prop_cds_train), y = empirical_stat, 
+             fill = speech_register, group = speech_register)) +
+  geom_col(position = 'dodge', width = 0.45) + 
+  geom_linerange(aes(ymin = ci_lower, ymax = ci_upper), size =1,
+                 position=position_dodge(width=0.45)) +
+  scale_fill_ptol() +
+  lims(y = c(0, NA)) +
+  labs(x = "Prop CDS in Training", y = "Mean Prob. Correct Prediction") +
+  theme(legend.position = "top")
+```
+
+### Error analysis
+
+Plot the distribution of success and errors with the cluster shapes
+
+```{r, fig.width=8, out.width="95%"}
+d_kmeans <- read_rds(here(paths_config$pitch_sum_path, "lena-pred-kmeans-outputs.rds"))
+shape_val <- "shapes_8"
+d_shapes <- d_kmeans[[shape_val]]
+cluster_shapes <- plot_cluster_shapes(d_shapes$centers, scaled = TRUE)
+
+target_dist_plot <-  d %>% 
+  filter(is_target_cluster == T) %>% 
+  ggplot(aes(as_factor(target_cluster), fill = speech_register)) +
+  geom_histogram(stat='count') +
+  labs(x = "Cluster Category", title = "Target Distribution") +
+  facet_wrap(~speech_register, ncol = 1) +
+  scale_fill_ptol() +
+  guides(fill = F) + 
+  theme(legend.position = "bottom")
+
+errors_plot <- d %>% 
+  filter(is_target_cluster == T) %>% 
+  ggplot(aes(as_factor(predicted_cluster), fill = speech_register)) +
+  geom_histogram(stat='count') +
+  labs(x = "Cluster Category", title = "Model predictions") +
+  facet_wrap(speech_register~correct_pred, ncol = 2) +
+  scale_fill_ptol() +
+  guides(fill = F) + 
+  theme(legend.position = "bottom")
+
+plot_grid(cluster_shapes, target_dist_plot, errors_plot,
+          nrow = 1,
+          rel_widths =  c(1.1, 1, 1.2),
+          scale = c(1, 0.8, 0.8))
 ```
 
 

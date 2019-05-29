@@ -33,8 +33,6 @@ kyle_theme <- function(base_size = 16,
     )
 }
 
-theme_set(kyle_theme())
-
 # plot the polynomial shapes indicated by the cluster centers after kmeans step
 # the sequence of these shapes is what the dnn is trying to learn
 plot_cluster_shapes <- function(df_centers, scaled = TRUE) {
@@ -64,7 +62,8 @@ plot_cluster_shapes <- function(df_centers, scaled = TRUE) {
                                 color = "white",
                                 box.padding = unit(0.35, "lines"),
                                 size = 3,
-                                nudge_x = 2) +
+                                nudge_x = 2,
+                                nudge_y = -0.1) +
       guides(fill = F, color = F) +
       ggthemes::scale_color_ptol(drop = FALSE) +
       ggthemes::scale_fill_ptol(drop = FALSE)
@@ -85,7 +84,7 @@ plot_cluster_shapes <- function(df_centers, scaled = TRUE) {
 
 plot_clusters_scatter <- function(d) {
   if (d$cluster %>% unique() %>% length() <= 12) {
-    d_final$d_clusters %>% 
+    d %>% 
       ggplot(aes(coef_quadratic, coef_linear, color = as_factor(cluster))) +
       geom_point(size = 3, alpha = 0.7) +
       ggthemes::scale_color_ptol(drop = FALSE) +
@@ -122,8 +121,12 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
   
   # get lims for plot
   buffer <- 0.2
-  ylims <- c(min(df_raw$z_log_pitch_interp) - buffer, max(df_raw$z_log_pitch_interp) + buffer)
+  norm_pitch_vals <- df_raw %>% filter(seg_id == seg_id_to_plot) %>% pull(z_log_pitch_interp)
+  ylims <- c(min(norm_pitch_vals) - buffer, 
+             max(norm_pitch_vals) + buffer)
+  
   raw_pitch_max <- max(df_raw$pitch_original) + 100
+  
   # plot raw pitch contour
   orig_raw_pitch <- df_raw %>%
     filter(seg_id == seg_id_to_plot) %>%
@@ -184,13 +187,17 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
     segmented_plot <- segmented_plot +
       geom_label(data = df_cluster_labels,
                  aes(time_ms, pred, label = cluster,fill = cluster),
-                 color = "white") +
+                 color = "white",
+                 nudge_x = 20,
+                 nudge_y = -0.2) +
       ggthemes::scale_fill_ptol(drop = FALSE)
   } else {
     segmented_plot <- segmented_plot +
       geom_label(data = df_cluster_labels,
                  aes(time_ms, pred, label = cluster),
-                 color = "black") 
+                 color = "black",
+                 nudge_x = 20,
+                 nudge_y = -0.2) 
   }
   
   cowplot::plot_grid(orig_raw_pitch, orig, segmented_plot, nrow = 3)

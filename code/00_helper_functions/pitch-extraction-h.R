@@ -5,17 +5,19 @@
 get_pitch_contour <- function(file_path, p_config) {
   file_path_spl <- str_split(file_path, "/", simplify = T)
   
-  d_out <- analyze(x = file_path, plot = FALSE,
+  d_out <- analyze(x = file_path,
+                   plot = FALSE,
                    pitchFloor = p_config$pitch_min,
                    pitchCeiling = p_config$pitch_max,
                    silence = p_config$silence_min,
                    autocorThres = p_config$autocor_threshold,
                    pathfinding = p_config$pathfinding_alg,
-                   pitchMethods = p_config$pitch_methods, entropyThres = p_config$ent_threshold,
+                   pitchMethods = p_config$pitch_methods,
+                   entropyThres = p_config$ent_threshold,
                    step = p_config$step_size,
                    wn = p_config$window_type,
                    windowLength = p_config$window_length)
-  
+
   tidy_seg_meta(d_out, file_path, file_path_spl)
 }
 
@@ -32,8 +34,9 @@ tidy_seg_meta <- function(d, file_path, file_path_spl) {
              path_to_wav = file_path,
              speech_register = file_path_spl[11],
              word_category = NA,
-             seg_id = str_remove(file_path_spl[12], '.wav')) %>%
-      select(seg_id, dataset, speech_register, word_category, pitch, voiced, time, ampl, path_to_wav)
+             seg_id = str_remove(file_path_spl[12], '.wav'),
+             speaker_id = NA) %>%
+      select(seg_id, dataset, speech_register, speaker_id, word_category, pitch, voiced, time, ampl, path_to_wav)
   } else if ( str_detect(file_path, "ManyBabies") ) {
     d %>%
       mutate(dataset = str_remove(file_path_spl[9], "-norm"),
@@ -44,13 +47,14 @@ tidy_seg_meta <- function(d, file_path, file_path_spl) {
              speaker_id = get_speaker_id_mb(seg_id)) %>% 
       select(seg_id, dataset, speech_register, speaker_id, word_category, pitch, voiced, time, ampl, path_to_wav)
   } else if ( str_detect(file_path, "IDSLabel") ) {
-    d %>%
-      mutate(dataset = file_path_spl[10],
-             path_to_wav = file_path,
-             speech_register = file_path_spl[11],
-             word_category = NA,
-             seg_id = str_remove(file_path_spl[12], '.wav')) %>%
-      select(seg_id, dataset, speech_register, word_category, pitch, voiced, time, ampl, path_to_wav)
+    # TODO: make this work with whatever metadata we can extract from IDSLabel filenames
+    # d %>%
+    #   mutate(dataset = file_path_spl[10],
+    #          path_to_wav = file_path,
+    #          speech_register = file_path_spl[11],
+    #          word_category = NA,
+    #          seg_id = str_remove(file_path_spl[12], '.wav')) %>%
+    #   select(seg_id, dataset, speech_register, word_category, pitch, voiced, time, ampl, path_to_wav)
   } else {
     print("invalid specification of dataset in path_to_wav in config file")
   }
@@ -62,7 +66,7 @@ tidy_seg_meta <- function(d, file_path, file_path_spl) {
 batch_filter_voiced <- function(d) {
   d %>% 
     split(.$seg_id) %>% 
-    map_df(filter_voiced)
+    furrr::future_map_dfr(filter_voiced)
 }
 
 filter_voiced <- function(d) {
@@ -78,7 +82,7 @@ filter_voiced <- function(d) {
 batch_interpolate <- function(d, loess_config) {
   d %>% 
     split(.$seg_id) %>% 
-    map_df(interpolate_loess, 
+    furrr::future_map_dfr(interpolate_loess, 
            frac_points = loess_config$frac_points_loess, 
            sample_rate = loess_config$preds_sample_rate) %>% 
     filter(!is.na(log_pitch_interp)) 
@@ -112,7 +116,7 @@ create_time_bins <- function(d, bin_width) {
     mutate(time_bin = cut_width(time, 
                                 width = bin_width,
                                 closed = 'left',
-                                boundary = 0))
+                                boundary = 0)) 
 }
 
 # re-zero time wrt to this 100 ms time bin
@@ -129,15 +133,13 @@ relabel_bins <- function(d) {
     distinct(seg_id, time_bin) %>% 
     group_by(seg_id) %>% 
     mutate(time_bin_id = seq_along(time_bin)) %>% 
-    left_join(d, .)
+    left_join(d, ., by = c("seg_id", "time_bin"))
 }
-
 
 map_get_clusters <- function(k_list, d, scale_coefs = TRUE, iter_max = 20) {
   names(k_list) <- paste0("shapes_", as.character(k_list))
-  k_list %>% map(.f = get_cluster_assignments, df = d, scale_coefs = scale_coefs, iter_max = iter_max) 
+  k_list %>% furrr::future_map(.f = get_cluster_assignments, df = d, scale_coefs = scale_coefs, iter_max = iter_max) 
 }
-
 
 # returns kmeans cluster assignments for each 100 ms time bin
 get_cluster_assignments <- function(df, k, scale_coefs = TRUE, iter_max = 20) {

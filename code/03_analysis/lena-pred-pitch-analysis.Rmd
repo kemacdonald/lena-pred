@@ -1,0 +1,104 @@
+---
+title: "Acoustic Analyses"
+author: "Kyle MacDonald"
+output: html_document
+---
+
+## Setup 
+
+```{r libraries, include=FALSE}
+source(here::here("code/00_config/lena-pred-libraries.R"))
+source(here("code/00_config/lena-pred-pitch-config.R"))
+source(here("code/00_helper_functions/plotting-h.R"))
+source(here("code/00_helper_functions/pitch-extraction-h.R"))
+
+knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.asp = 0.8, 
+                      fig.width = 8, fig.align = 'center', out.width = "80%")
+```
+
+Load extracted pitch contours
+
+```{r extracted pitch estimates}
+d <- read_rds(here(paths_config$pitch_sum_path, "lena-pred-pitch-vals.rds"))
+d$speech_register <- factor(d$speech_register) %>% fct_rev()
+```
+
+## Analysis
+
+Compare raw FO means, SDs, and range 
+
+```{r}
+ss <- d %>% 
+  group_by(speaker_id, speech_register, seg_id) %>% 
+  summarise(m = mean(pitch_original, na.rm = T), 
+            m_log = mean(log_pitch_interp)) %>% 
+  group_by(speaker_id, speech_register) %>% 
+  summarise(m = mean(m), 
+            m_log = mean(m_log))
+  
+ms <- ss %>% 
+  group_by(speech_register) %>% 
+  tidyboot_mean(column = m)
+
+ms %>% 
+  ggplot(aes(x = speech_register, y = empirical_stat)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper)) +
+  labs(y = "Pitch (Hz)") +
+  lims(y = c(150, 300))
+```
+
+## Temporal analysis
+
+```{r}
+nbins <- 10
+d_temp <- d %>% 
+  mutate(time_bin_id_num = as.numeric(time_bin_id)) %>% 
+  group_by(seg_id) %>% 
+  mutate(time_bin_within_utt = cut_interval(time_bin_id_num, n = nbins, labels = F))
+
+ss_within_utt <- d_temp %>% 
+  group_by(seg_id, speaker_id, time_bin_within_utt, speech_register) %>% 
+  summarise(m_log_pitch = mean(z_log_pitch_interp))
+
+ms_within_utt <- ss_within_utt %>% 
+  group_by(time_bin_within_utt, speech_register) %>% 
+  tidyboot_mean(column = m_log_pitch) 
+
+ms_within_utt %>% 
+  ggplot(aes(x = as_factor(time_bin_within_utt), y = empirical_stat, 
+             color = speech_register, group = speech_register)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper)) +
+  geom_line(size = 1) +
+  scale_color_ptol() +
+  labs(x = "Relative position in Utterance", y = "Mean Z-Log Pitch") +
+  theme(legend.position = "top")
+```
+
+Split by duration of utterance
+
+```{r}
+split_val <- median(d$duration_ms)
+
+d_temp <- d_temp %>% mutate(utt_length_type = ifelse(duration_ms <= split_val, "short", "long"))
+
+ss_within_utt <- d_temp %>% 
+  group_by(seg_id, speaker_id, time_bin_within_utt, speech_register, utt_length_type) %>% 
+  summarise(m = mean(z_log_pitch_interp)) %>% 
+  group_by(speaker_id, time_bin_within_utt, speech_register, utt_length_type) %>%
+  summarise(m_log_pitch = mean(m))
+
+ms_within_utt <- ss_within_utt %>% 
+  group_by(time_bin_within_utt, speech_register, utt_length_type) %>% 
+  tidyboot_mean(column = m_log_pitch) 
+
+ms_within_utt %>% 
+  ggplot(aes(x = as_factor(time_bin_within_utt), y = empirical_stat, 
+             fill = speech_register, group = speech_register)) +
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.2) +
+  geom_line(aes(color = speech_register), size = 1) +
+  scale_fill_ptol() +
+  scale_color_ptol() +
+  labs(x = "Relative position in Utterance", y = "Mean Z-Log Pitch") +
+  theme(legend.position = "top") +
+  facet_wrap(~fct_rev(utt_length_type), ncol = 2)
+```
