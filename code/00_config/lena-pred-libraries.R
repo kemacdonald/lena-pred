@@ -23,7 +23,7 @@ package_check <- lapply(packages, FUN = function(x) {
 if (!require("keras", character.only = TRUE) ) {
   devtools::install_github("rstudio/keras")
   library(keras)
-  install_keras() # defaults to install in r-tensorflow virtual env
+  reticulate::use_virtualenv(virtualenv = "~/.virtualenvs/lena-pred/")
 } else {
   library(keras)
 }

@@ -200,7 +200,6 @@ plot_grid(cluster_shapes, target_dist_plot, errors_plot,
           scale = c(1, 0.8, 0.8))
 ```
 
-
 ## IDSLabel
 
 Below we use the same code with minor modifications to visualize the IDSLabel dataset.

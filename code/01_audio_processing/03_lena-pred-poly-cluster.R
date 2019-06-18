@@ -6,8 +6,8 @@ plan(multiprocess)
 
 # Read raw pitch values ---------------------------------------------------
 
-d <- read_rds(here(paths_config$pitch_sum_path, 
-                   "lena-pred-pitch-vals-pre-interp.rds"))
+d <- read_rds(here(paths_config$pitch_sum_path, "lena-pred-pitch-vals-pre-interp.rds"))
+d <- d %>% mutate(exp_run_id = 1) # for running intermediate version of script
 
 # Batch interpolate  ------------------------------------------------------
 
@@ -36,10 +36,9 @@ d_interp <- d_interp %>%
 # Save intermediate output
 write_rds(d_interp, here(paths_config$pitch_sum_path, "lena-pred-pitch-vals.rds"))
 
-
 # Fit second-order polynomial in each time bin ----------------------------
 
- d_by_bin <- d_interp %>%
+d_by_bin <- d_interp %>%
   group_by(seg_id, dataset, speech_register, speaker_id,
            time_bin_id, duration_ms, speaker_id) %>%
   nest() 
@@ -53,10 +52,11 @@ d_by_bin <- d_by_bin %>%
 # Kmeans clustering of poly coefs -----------------------------------------
 
 d_coefs <- unnest(d_by_bin, poly_coefs, .drop = T)
-d_final <- map_get_clusters(poly_fit_config$n_q_shapes, 
+d_final <- map_get_clusters(poly_fit_config$n_q_shapes,
+                            run_id = 1,
                             d = d_coefs, 
-                            iter_max = 20, 
-                            scale_coefs = TRUE) 
+                            iter_max = kmeans_config$iter_max, 
+                            scale_coefs = kmeans_config$scale_coefs) 
 
 # add one set of cluster assignments to nested data (for viz purposes later on)
 d_tmp <- d_final[["shapes_16"]]

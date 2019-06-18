@@ -18,12 +18,12 @@ d_list <- read_rds(here(paths_config$lstm_sum_path,
   flatten() 
 
 # create list of models for each dataset: prop CDS and n-qshapes
-mods <- d_list[1:5] %>% map(create_lstm, lstm_config)
+mods <- d_list %>% map(create_lstm, lstm_config)
 
 # train model and generate predictions 
 # the train lstm function also handles post-processing 
 # and tidying the model predictions
-results_obj <- pmap(list(mods, names(mods), d_list[1:5]), 
+results_obj <- pmap(list(mods, names(mods), d_list), 
                     .f = safe_train_lstm, 
                     lstm_config = lstm_config)
 

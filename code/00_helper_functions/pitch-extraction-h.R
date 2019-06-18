@@ -17,7 +17,7 @@ get_pitch_contour <- function(file_path, p_config) {
                    step = p_config$step_size,
                    wn = p_config$window_type,
                    windowLength = p_config$window_length)
-
+  
   tidy_seg_meta(d_out, file_path, file_path_spl)
 }
 
@@ -83,13 +83,13 @@ batch_interpolate <- function(d, loess_config) {
   d %>% 
     split(.$seg_id) %>% 
     furrr::future_map_dfr(interpolate_loess, 
-           frac_points = loess_config$frac_points_loess, 
-           sample_rate = loess_config$preds_sample_rate) %>% 
+                          frac_points = loess_config$frac_points_loess, 
+                          sample_rate = loess_config$preds_sample_rate) %>% 
     filter(!is.na(log_pitch_interp)) 
 }
 
 interpolate_loess <- function(d, sample_rate, frac_points) {
-
+  
   t_to_predict <- d$time
   
   preds <- loess(log_pitch ~ time, 
@@ -99,6 +99,7 @@ interpolate_loess <- function(d, sample_rate, frac_points) {
   
   tibble(
     seg_id = d$seg_id[1],
+    exp_run_id = d$exp_run_id[1],
     speaker_id = d$speaker_id[1],
     dataset = d$dataset[1],
     speech_register = d$speech_register[1],
@@ -136,8 +137,8 @@ relabel_bins <- function(d) {
     left_join(d, ., by = c("seg_id", "time_bin"))
 }
 
-map_get_clusters <- function(k_list, d, scale_coefs = TRUE, iter_max = 20) {
-  names(k_list) <- paste0("shapes_", as.character(k_list))
+map_get_clusters <- function(k_list, run_id, d, scale_coefs = TRUE, iter_max = 20) {
+  names(k_list) <- paste0("shapes_", as.character(k_list), "-run", run_id)
   k_list %>% furrr::future_map(.f = get_cluster_assignments, df = d, scale_coefs = scale_coefs, iter_max = iter_max) 
 }
 
@@ -154,21 +155,25 @@ get_cluster_assignments <- function(df, k, scale_coefs = TRUE, iter_max = 20) {
       select(coef_quadratic, coef_linear) %>% 
       as.matrix() %>% 
       scale()
+    
+    cl <- kmeans(coefs_mat, centers = k, iter.max = iter_max)
+    
+    list(centers = cl$centers %>% as_tibble(rownames = "cluster") %>% 
+           mutate(coef_intercept = 0,  cluster = as.numeric(cluster),
+                  coef_linear_unscaled = coef_linear * sd_linear + m_linear,
+                  coef_quadratic_unscaled = coef_quadratic * sd_quad + m_quad),
+         d_clusters = df %>% mutate(cluster = cl$cluster, n_qshapes = k))
   } else {
     coefs_mat <- df %>% 
       select(coef_quadratic, coef_linear) %>% 
       as.matrix()  
+    
+    cl <- kmeans(coefs_mat, centers = k, iter.max = iter_max)
+    
+    list(centers = cl$centers %>% as_tibble(rownames = "cluster") %>% 
+           mutate(coef_intercept = 0,  cluster = as.numeric(cluster)),
+         d_clusters = df %>% mutate(cluster = cl$cluster, n_qshapes = k))
   }
-  
-  cl <- kmeans(coefs_mat, centers = k, iter.max = iter_max)
-  
-  list(centers = cl$centers %>% as_tibble(rownames = "cluster") %>% 
-         mutate(coef_intercept = 0,  cluster = as.numeric(cluster),
-                coef_linear_unscaled = coef_linear * sd_linear + m_linear,
-                coef_quadratic_unscaled = coef_quadratic * sd_quad + m_quad),
-       d_clusters = df %>% mutate(cluster = cl$cluster,
-                                  n_qshapes = k) 
-       )
 }
 
 # add the duration of utterances to the dataframe
@@ -215,4 +220,3 @@ predict_poly <- function(d) {
     pred = pracma::polyval(p, time_ms)
   ) 
 }
-

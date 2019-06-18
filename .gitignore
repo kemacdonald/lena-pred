@@ -7,7 +7,6 @@ tf/
 .mov
 *cache/
 presentations/
-data/
 .Rproj.user
 packrat/lib*/
 experiments/
@@ -17,3 +16,4 @@ hddm/
 .ipynb_checkpoints/
 DiViMe/
 *_files/
+data/

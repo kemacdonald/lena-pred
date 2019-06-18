@@ -1,10 +1,11 @@
 ### Pitch Extraction Config File #### ----------------------------------------------------
 set.seed(12345)
 
-### Experiments config ----------------------------------------------------
+### Experiment config ----------------------------------------------------
 dataset_name <- "ManyBabies"
 prop_cds_vals <- c(0, 0.25, 0.5, 0.75, 1)
-n_qshapes_vals <- seq(8, 24, by = 4)
+n_qshapes_vals <- 12
+#n_qshapes_vals <- seq(8, 24, by = 4)
 
 ### DNN dataset config ----------------------------------------------------
 
@@ -34,6 +35,11 @@ time_filter_config <- list(
   min_prop_voiced = 0.1,
   time_bin_width = 100,
   min_samples_bin = 10)
+
+kmeans_config <- list(
+  iter_max = 20, 
+  scale_coefs = FALSE  
+)
 
 loess_config <- list(
   min_n_samples_loess = 10,

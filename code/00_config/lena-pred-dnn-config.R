@@ -1,23 +1,24 @@
 #### LSTM Config ----------------------------------------
+
 source(here::here("code/00_config/lena-pred-libraries.R"))
 source(here("code/00_config/lena-pred-pitch-config.R"))
 
-# set up config object
 lstm_config <- list(
   lstm_units = 30,
   lstm_output_dim = 30,
-  n_epochs = 12,
+  n_epochs = 10,
   early_stop = callback_early_stopping(monitor = "val_loss", 
                                        min_delta = 0.0001, patience = 3, 
                                        verbose = 0, mode = "auto"),
-  batch_size = 10,
-  validation_split = 0.1, # ask Okko about validation split
+  batch_size = 100, # should be 10
+  validation_split = 0.2, # ask Okko about validation split
   dropout = 0,
   lr = .001,
   shuffle = TRUE
 )
 
 # add config parameters that vary depending on if we use Okko's implementation
+
 if ( paths_config$data_set == "rasanen_2018" ) {
   read_path_rasanen <- "data/03_summaries/rasanen_2018"
   rasanen_results <- "results_19-Oct-2017 21_07_23_ManyBabies_usesyllables0_framesize_100.mat"
