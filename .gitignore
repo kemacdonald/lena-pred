@@ -16,4 +16,8 @@ hddm/
 .ipynb_checkpoints/
 DiViMe/
 *_files/
-data/
+
+# data files
+data/00_metadata/
+data/01_raw_data/
+data/02_processed_data/
