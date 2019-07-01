@@ -2,6 +2,7 @@
 
 # wrapper function to map the dataset generator over a list of proportion CDS values
 # this allows us to experiment with the amount of CDS in the training data 
+
 build_lstm_datasets <- function(d, d_name, prop_cds_train_list, dnn_config) {
   # sample one set of test data to be used across all the different training sets
   d_test <- get_test_data(d, dnn_config)
@@ -30,8 +31,6 @@ build_one_lstm_dataset <- function(d, prop_cds_train, d_test, dnn_config) {
   # Create some test objects so we can check that the sampling function works properly
   dur_cds_ads <- check_prop_cds_train(d_train)
   prop_cds_test <- check_prop_cds_test(d_test)
-  
-  print(dur_cds_ads)
 
   # Pass those train/test samples to the dataset generator function
   # to create an lstm-ready dataset
@@ -44,12 +43,12 @@ build_one_lstm_dataset <- function(d, prop_cds_train, d_test, dnn_config) {
   d_out$actual_prop_cds_train <- dur_cds_ads
   d_out$actual_prop_cds_test <- prop_cds_test
   d_out$n_qshapes <- unique(d$n_qshapes)
+  d_out$exp_run_id <- unique(d$exp_run_id)
 
   # return a named list object to track information about the dataset
   obj <- list()
-  obj_name <- paste0("cds", prop_cds_train, "_shapes", d_out$n_qshapes)
+  obj_name <- paste0("cds", prop_cds_train, "_shapes", d_out$n_qshapes, "-", d_out$exp_run_id)
   obj[[obj_name]] <- d_out
-
   obj
 }
 

@@ -2,7 +2,7 @@
 knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.asp = 0.8, 
                       fig.width = 8, fig.align = 'center', out.width = "80%")
 
-#specify the packages of interest
+# specify the packages of interest
 packages = c("pracma", "mvtnorm", "soundgen", "R.matlab",
              "here", "furrr", "janitor", "glue", 
              "tidyboot", "ggthemes", "ggrepel", "cowplot", 
@@ -28,10 +28,14 @@ if (!require("keras", character.only = TRUE) ) {
   library(keras)
 }
 
-# check if ffmpeg-normalize is installed, if not install
+# TODO check if ffmpeg-normalize is installed, if not install
 
-
-
-## Set plot theme
+# Set plot theme
 source(here("code/00_helper_functions/plotting-h.R"))
 theme_set(kyle_theme())
+
+# Load local helper functions
+source(here("code/00_helper_functions/lstm-train-h.R"))
+source(here("code/00_helper_functions/lstm-data-gen-h.R"))
+source(here("code/00_helper_functions/pitch-extraction-h.R"))
+source(here("code/00_helper_functions/run-experiment-h.R"))

@@ -8,7 +8,7 @@ output: html_document
 
 ```{r libraries, include=FALSE}
 source(here::here("code/00_config/lena-pred-libraries.R"))
-source(here("code/00_config/lena-pred-pitch-config.R"))
+source(here("code/00_config/lena-pred-config.R"))
 source(here("code/00_helper_functions/plotting-h.R"))
 source(here("code/00_helper_functions/pitch-extraction-h.R"))
 
@@ -19,7 +19,7 @@ knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.asp = 0.8,
 Load extracted pitch contours
 
 ```{r extracted pitch estimates}
-d <- read_rds(here(paths_config$pitch_sum_path, "lena-pred-pitch-vals.rds"))
+d <- read_rds(here(config_obj$paths_config$pitch_sum_path, "lena-pred-pitch-vals.rds"))
 d$speech_register <- factor(d$speech_register) %>% fct_rev()
 ```
 

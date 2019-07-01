@@ -7,7 +7,7 @@ output: html_document
 
 ```{r libraries and config, warning=FALSE, include=FALSE}
 source(here::here("code/00_config/lena-pred-libraries.R"))
-source(here("code/00_config/lena-pred-pitch-config.R"))
+source(here("code/00_config/lena-pred-config.R"))
 source(here("code/00_helper_functions/plotting-h.R"))
 source(here("code/00_helper_functions/analysis-h.R"))
 source(here("code/00_helper_functions/pitch-extraction-h.R"))
@@ -16,8 +16,8 @@ source(here("code/00_helper_functions/pitch-extraction-h.R"))
 Read model predictions 
 
 ```{r}
-d_list <- read_rds(here(paths_config$lstm_sum_path, "lena-pred-lstm-preds.rds"))
-d_persist <- read_csv(here(paths_config$lstm_sum_path, "lena-pred-persist-results-mb.csv"))
+d_list <- read_rds(here(config_obj$paths_config$lstm_sum_path, "lena-pred-lstm-preds.rds"))
+d_persist <- read_csv(here(config_obj$paths_config$lstm_sum_path, "lena-pred-persist-results-mb.csv"))
 ```
 
 ## ManyBabies
@@ -76,7 +76,6 @@ mb_ms %>%
   geom_point(alpha = 0.4, size = 2) +
   geom_smooth(method = "lm", size = 1.5) +
   scale_color_ptol() +
-  lims(y=c(0, 1.01)) +
   labs(x = "Utterance Duration (sec)", y = "Mean Prob. of Correct Prediction")
 ```
 
@@ -84,7 +83,7 @@ mb_ms %>%
 
 ```{r}
 n_bins <- 10
-n_shapes <- 8
+n_shapes <- 12
 
 d_within_utt <- d %>% 
   filter(is_target_cluster == TRUE, n_qshapes == n_shapes) %>% 
@@ -169,8 +168,8 @@ ms_prop_train %>%
 Plot the distribution of success and errors with the cluster shapes
 
 ```{r, fig.width=8, out.width="95%"}
-d_kmeans <- read_rds(here(paths_config$pitch_sum_path, "lena-pred-kmeans-outputs.rds"))
-shape_val <- "shapes_8"
+d_kmeans <- read_rds(here(config_obj$paths_config$pitch_sum_path, "lena-pred-kmeans-outputs.rds"))
+shape_val <- "shapes_12-run1"
 d_shapes <- d_kmeans[[shape_val]]
 cluster_shapes <- plot_cluster_shapes(d_shapes$centers, scaled = TRUE)
 

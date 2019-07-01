@@ -33,7 +33,7 @@ create_lstm <- function(d, lstm_config) {
 
 # Train LSTM ---------------------------------------------------
 
-train_lstm <- function(model, model_name, input_data, lstm_config) {
+train_lstm <- function(model, model_name, input_data, lstm_config, save_model = FALSE) {
   summary(model)
   
   # train model
@@ -43,18 +43,18 @@ train_lstm <- function(model, model_name, input_data, lstm_config) {
         batch_size = lstm_config$batch_size,
         epochs = lstm_config$n_epochs,
         validation_split = lstm_config$validation_split,
-        shuffle = lstm_config$shuffle
-        #callbacks = lstm_config$early_stop
+        shuffle = lstm_config$shuffle,
+        callbacks = lstm_config$early_stop
     )
   
   # generate predictions
   preds <- model %>% predict(input_data$d_vectorized$test_in)
   
   # tidy up predictions
-  d_tidy_preds <- tidy_preds(preds, input_data)
+  d_tidy_preds <- tidy_preds(preds, input_data, input_data$exp_run_id)
   
   # save model
-  model %>% save_model_hdf5(here(glue::glue("models/", {model_name}, "_mod.h5")))
+  if (save_model) {model %>% save_model_hdf5(here(glue::glue("models/", {model_name}, "_mod.h5")))}
   
   list(fit = m_fit, d_preds = d_tidy_preds)
 }
@@ -65,7 +65,7 @@ safe_train_lstm <- safely(train_lstm)
 
 # Tidy model predictions --------------------------------------------------
 
-tidy_preds <- function(preds, d) {
+tidy_preds <- function(preds, d, run_id, nqshapes) {
   
   d_preds <- preds %>% 
     as_tibble(.name_repair = "universal") %>% 
@@ -76,12 +76,13 @@ tidy_preds <- function(preds, d) {
   d_preds <- d_preds %>% 
     mutate(seg_id = d$test_data$next_cluster_seg_id %>% as.character(),
            speaker_id = d$test_data$next_cluster_speaker_id %>% as.character(),
+           exp_run_id = run_id,
            speech_register = d$test_data$next_cluster_speech_register %>% as.character(),
            time_bin_id = d$test_data$next_cluster_time_bin_id %>% as.character(),
            target_cluster = d$test_data$next_cluster %>% as.character(),
            dataset = d$test_data$next_cluster_dataset %>% as.character(),
            duration_ms = d$test_data$next_cluster_duration_ms %>% as.character()) %>% 
-    select(seg_id, speaker_id, dataset, speech_register, 
+    select(seg_id, speaker_id, exp_run_id, dataset, speech_register, 
            time_bin_id, target_cluster, duration_ms, everything()) 
   
   # tidy the predictions
