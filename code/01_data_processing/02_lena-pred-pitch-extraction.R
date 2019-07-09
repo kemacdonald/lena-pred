@@ -17,11 +17,14 @@ d %>% mutate(log_pitch = log(pitch)) -> d # log transform pitch data
 
 # Create a blacklist of segment ids with too few pitch estimate 
 # to do reliable loess interpolation and filter data
-seg_id_blacklist <- flag_too_few_pitch(d, loess_config$min_n_samples_loess) 
+seg_id_blacklist <- flag_too_few_pitch(d, config_obj$loess_config$min_n_samples_loess) 
 d %>% filter(!(seg_id %in% seg_id_blacklist)) -> d
 
 # Save outputs ------------------------------------------------------------
-write(seg_id_blacklist, here(write_path, "lena-pred-seg-blacklist.txt"))
-write_rds(d, here(write_path, "lena-pred-pitch-vals-pre-interp.rds"))
+write(seg_id_blacklist, here(write_path, paste0("lena-pred-seg-blacklist-", config_obj$exp_config$dataset, ".txt")))
+
+write_rds(d, here(write_path, 
+                  paste0("lena-pred-pitch-vals-pre-interp-", config_obj$exp_config$dataset, ".rds")),
+          compress = "gz")
 
 print("Completed pitch extraction")

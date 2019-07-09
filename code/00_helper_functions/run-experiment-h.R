@@ -2,9 +2,7 @@ run_experiment <- function(run_id, config_object) {
   d_clusters <- generate_cluster_dataset(run_id, config_object)
   d_dnn <- generate_dnn_dataset(d_clusters, config_object, run_id)
   d_results <- fit_dnn(d_dnn, config_object, run_id)
-  
   print(paste("Completed", run_id))
-  
   d_results
 }
 

@@ -204,12 +204,10 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
   
 }
 
-plot_model_output <- function(d, col_name) {
-  col_name <- enquo(col_name)
-  
+plot_model_output <- function(d, col_name, y_axis_lab) {
   ms1 <- d %>% 
     group_by(speech_register, seg_id) %>% 
-    summarise(m = mean(!! col_name)) %>% 
+    summarise(m = mean( {{ col_name }} )) %>% 
     tidyboot_mean(column = m) 
   
   y_upper_a <- max(ms1$empirical_stat)
@@ -218,11 +216,11 @@ plot_model_output <- function(d, col_name) {
     ggplot(aes(x = speech_register, y = empirical_stat)) +
     geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper)) +
     ylim(0, y_upper_a + .1) +
-    labs(x = "Speech Register", y = "Mean Prob Mass")
+    labs(x = "Speech Register", y = y_axis_lab)
   
   ms2 <- d %>%
     group_by(speech_register, n_qshapes) %>%
-    tidyboot_mean(column = !! col_name)
+    tidyboot_mean(column = {{ col_name }} )
   
   y_upper_b <-max(ms2$empirical_stat)
   
@@ -230,8 +228,7 @@ plot_model_output <- function(d, col_name) {
     ggplot(aes(x = as_factor(n_qshapes), y = empirical_stat, color = speech_register)) +
     geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper)) +
     lims(y=c(0, y_upper_b + 0.1)) +
-    labs(x = "Number of Q-shapes", y = "Mean Prob Mass",
-         color = "Speech Register") +
+    labs(x = "Number of Q-shapes", y = y_axis_lab, color = "Speech Register") +
     scale_color_ptol() +
     theme(legend.position = 'top')
   

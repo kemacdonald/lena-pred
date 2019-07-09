@@ -5,8 +5,9 @@ source(here("code/00_config/lena-pred-config.R"))
 plan(multiprocess)
 
 # Read raw pitch values ---------------------------------------------------
-d <- read_rds(here(config_obj$paths_config$pitch_sum_path, "lena-pred-pitch-vals-pre-interp.rds"))
-d <- d %>% mutate(exp_run_id = 1) # for running intermediate version of script
+d <- read_rds(here(config_obj$paths_config$pitch_sum_path, 
+                   paste0("lena-pred-pitch-vals-pre-interp-", config_obj$exp_config$dataset_name, ".rds")))
+d <- d %>% mutate(exp_run_id = 1, speaker_id = NA) # for running intermediate version of script
 
 # Batch interpolate  ------------------------------------------------------
 d_interp <- batch_interpolate(d, loess_config = config_obj$loess_config)   
@@ -31,7 +32,9 @@ d_interp <- d_interp %>%
   mutate(duration_ms = max(time))
 
 # Save intermediate output
-write_rds(d_interp, here(config_obj$paths_config$pitch_sum_path, "lena-pred-pitch-vals.rds"))
+write_rds(d_interp, here(config_obj$paths_config$pitch_sum_path, 
+                         paste0("lena-pred-pitch-vals-", config_obj$exp_config$dataset_name, ".rds")),
+          compress = "gz")
 
 # Fit second-order polynomial in each time bin ----------------------------
 d_by_bin <- d_interp %>%
@@ -41,8 +44,8 @@ d_by_bin <- d_interp %>%
 
 #  fit polynomial and make predictions based on fit -----------------------
 d_by_bin <- d_by_bin %>%
-  mutate(poly_coefs = future_map(data, fit_poly, config_obj$poly_fit_config$degree_poly)) %>%
-  mutate(poly_preds = future_map(poly_coefs, predict_poly)) 
+  mutate(poly_coefs = future_map(data, fit_poly, config_obj$poly_fit_config$degree_poly, .progress = T)) %>%
+  mutate(poly_preds = future_map(poly_coefs, predict_poly, .progress = T)) 
 
 # Kmeans clustering of poly coefs -----------------------------------------
 d_coefs <- unnest(d_by_bin, poly_coefs, .drop = T)
@@ -59,7 +62,12 @@ d_by_bin <- d_by_bin %>%
             by = c("seg_id", "time_bin_id")) 
 
 # Save outputs ------------------------------------------------------------
-write_rds(d_final, here(config_obj$paths_config$pitch_sum_path, "lena-pred-kmeans-outputs.rds"), compress = "gz")
-write_rds(d_by_bin, here(config_obj$paths_config$pitch_sum_path, "lena-pred-nested-pitch-vals.rds"), compress = "gz")
+write_rds(d_final, 
+          here(config_obj$paths_config$pitch_sum_path, paste0("lena-pred-kmeans-outputs-", config_obj$exp_config$dataset_name, ".rds")), 
+          compress = "gz")
+
+write_rds(d_by_bin, 
+          here(config_obj$paths_config$pitch_sum_path, paste0("lena-pred-nested-pitch-vals-", config_obj$exp_config$dataset_name, ".rds")), 
+          compress = "gz")
 
 print("Completed polynomial fit and clustering")

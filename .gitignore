@@ -17,6 +17,8 @@ hddm/
 DiViMe/
 *_files/
 
+lena-pred-pitch-vals-pre-interp*.rds
+
 # data files
 data/00_metadata/
 data/01_raw_data/

@@ -1,12 +1,13 @@
-## BDA helpers ---------------------------------------------------
+## Analysis helpers ---------------------------------------------------
 
-# extract just tidy preds data frame from results object
-# TODO: fix to handle safe results object
-extract_preds <- function(d, model_name) {
+# extract tidy preds data frame from results object
+extract_preds <- function(d_obj, model_name) {
   p_cs <- get_prop_cds(model_name)
   nq <- get_nqshapes(model_name)
-  
-  map_df(d, c("d_preds")) %>% mutate(prop_cds_train = p_cs, n_qshapes = nq)
+
+  pluck(d_obj, "result", "d_preds") %>% 
+    mutate(prop_cds_train = p_cs,
+           n_qshapes = nq)
 }
 
 get_nqshapes <- function(s) {
@@ -17,7 +18,7 @@ get_prop_cds <- function(s) {
   str_split(s, "_", simplify = T)[1] %>% str_extract(pattern = "(?<=cds).*$")
 }
 
-# TODO: fix this function
+# TODO: fix perplexity function
 compute_perplexity <- function(d) {
   cross_entropy <- keras::loss_categorical_crossentropy(y_true, y_pred)
   2^cross_entropy

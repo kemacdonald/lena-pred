@@ -18,9 +18,14 @@ knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.asp = 0.8,
 Load extracted pitch contours
 
 ```{r extracted pitch estimates}
-d <- read_rds(here(config_obj$paths_config$pitch_sum_path, "lena-pred-pitch-vals.rds"))
-d_kmeans <- read_rds(here(config_obj$paths_config$pitch_sum_path, "lena-pred-kmeans-outputs.rds"))
-d_by_bin <- read_rds(here(config_obj$paths_config$pitch_sum_path, "lena-pred-nested-pitch-vals.rds"))
+d <- read_rds(here(config_obj$paths_config$pitch_sum_path, 
+                   paste0("lena-pred-pitch-vals-", config_obj$exp_config$dataset_name, ".rds")))
+
+d_kmeans <- read_rds(here(config_obj$paths_config$pitch_sum_path, 
+                          paste0("lena-pred-kmeans-outputs-", config_obj$exp_config$dataset_name, ".rds")))
+
+d_by_bin <- read_rds(here(config_obj$paths_config$pitch_sum_path, 
+                          paste0("lena-pred-nested-pitch-vals-", config_obj$exp_config$dataset_name, ".rds")))
 ```
 
 ## Plot raw pitch contours
@@ -83,8 +88,10 @@ d %>%
   ggplot(aes(x = time, y = z_log_pitch_interp, color = time_bin)) +
   geom_point(size = 1) +
   guides(color = F) +
+  lims(y=c(-2.5, 2.5)) +
+  geom_hline(yintercept = 0, lty = "dashed") +
   labs(x = "Time (ms)", y = "Normalized log(Pitch)")  +
-  facet_wrap(~seg_id) 
+  facet_wrap(~seg_id+speech_register) 
 ```
 
 From the plot, it looks like the temporal segmentation step is working. 

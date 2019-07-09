@@ -1,10 +1,9 @@
 # Pitch Config File -------------------------------------------------------
 set.seed(12345)
-
-dataset_name <- "ManyBabies"
-prop_cds_vals <- 0.5 # c(0, 0.25, 0.5, 0.75, 1)
-n_qshapes_vals <- 12 #seq(8, 24, by = 4)    
-
+datasets <- c( "pilot", "ManyBabies", "IDSLabel")
+dataset_name <- datasets[2]
+prop_cds_vals <-  c(0, 0.25, 0.5, 0.75, 1)
+n_qshapes_vals <- seq(6, 12, 24)    
 
 path_to_wav <- case_when(
   dataset_name == "pilot" ~ "data/02_processed_data/pilot-segments-norm",
@@ -79,7 +78,7 @@ config_obj <- list(
     early_stop = callback_early_stopping(monitor = "val_loss", 
                                          min_delta = 0.0001, patience = 3, 
                                          verbose = 0, mode = "auto"),
-    batch_size = 100, # should be 10
+    batch_size = 10, # should be 10
     validation_split = 0.2, # ask Okko about validation split
     dropout = 0,
     lr = .001,

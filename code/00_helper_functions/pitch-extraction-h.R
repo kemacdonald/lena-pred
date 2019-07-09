@@ -45,16 +45,17 @@ tidy_seg_meta <- function(d, file_path, file_path_spl) {
              word_category = file_path_spl[11],
              seg_id = str_remove(file_path_spl[12], '.wav'),
              speaker_id = get_speaker_id_mb(seg_id)) %>% 
-      select(seg_id, dataset, speech_register, speaker_id, word_category, pitch, voiced, time, ampl, path_to_wav)
+      select(seg_id, dataset, speech_register, speaker_id, word_category, pitch, voiced, time, ampl, loudness, path_to_wav)
   } else if ( str_detect(file_path, "IDSLabel") ) {
     # TODO: make this work with whatever metadata we can extract from IDSLabel filenames
-    # d %>%
-    #   mutate(dataset = file_path_spl[10],
-    #          path_to_wav = file_path,
-    #          speech_register = file_path_spl[11],
-    #          word_category = NA,
-    #          seg_id = str_remove(file_path_spl[12], '.wav')) %>%
-    #   select(seg_id, dataset, speech_register, word_category, pitch, voiced, time, ampl, path_to_wav)
+    d %>%
+      mutate(dataset = file_path_spl[9],
+             path_to_wav = file_path,
+             speech_register = file_path_spl[10],
+             word_category = NA,
+             seg_id = str_remove(file_path_spl[11], '.wav'),
+             speaker_id = NA) %>%
+      select(seg_id, dataset, speech_register, word_category, pitch, voiced, time, ampl, loudness, path_to_wav)
   } else {
     print("invalid specification of dataset in path_to_wav in config file")
   }
