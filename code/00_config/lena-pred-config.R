@@ -3,7 +3,7 @@ set.seed(12345)
 datasets <- c( "pilot", "ManyBabies", "IDSLabel")
 dataset_name <- datasets[2]
 prop_cds_vals <-  c(0, 0.25, 0.5, 0.75, 1)
-n_qshapes_vals <- seq(6, 12, 24)    
+n_qshapes_vals <- c(6, 12, 24)    
 
 path_to_wav <- case_when(
   dataset_name == "pilot" ~ "data/02_processed_data/pilot-segments-norm",
@@ -52,7 +52,7 @@ config_obj <- list(
   
   kmeans_config = list(
     iter_max = 20, 
-    scale_coefs = TRUE  
+    scale_coefs = "scaled"  
   ),
   
   loess_config = list(
@@ -68,13 +68,14 @@ config_obj <- list(
   paths_config = list(data_set = dataset_name, 
                       path_to_wav = path_to_wav, 
                       files_to_analyze = files_to_analyze,
-                      pitch_sum_path = paste0("data/03_summaries/", dataset_name, "/01_pitch-data"),
-                      lstm_sum_path = paste0("data/03_summaries/", dataset_name, "/02_lstm-data")),
+                      pitch_sum_path = paste0("data/03_summaries/", dataset_name, "/01_pitch-data/"),
+                      lstm_sum_path = paste0("data/03_summaries/", dataset_name, "/02_lstm-data/")),
   
   lstm_config = list(
     lstm_units = 30,
     lstm_output_dim = 30,
-    n_epochs = 10,
+    n_epochs = 25,
+    include_early_stop = FALSE, # set to FALSE if we want the same number of training epochs across "conditions"
     early_stop = callback_early_stopping(monitor = "val_loss", 
                                          min_delta = 0.0001, patience = 3, 
                                          verbose = 0, mode = "auto"),
@@ -83,6 +84,7 @@ config_obj <- list(
     dropout = 0,
     lr = .001,
     shuffle = TRUE,
+    save_model = FALSE,
     n_clusters = n_qshapes_vals,
     input_shape = n_qshapes_vals + 1
   )

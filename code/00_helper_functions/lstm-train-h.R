@@ -33,19 +33,30 @@ create_lstm <- function(d, lstm_config) {
 
 # Train LSTM ---------------------------------------------------
 
-train_lstm <- function(model, model_name, input_data, lstm_config, save_model = FALSE) {
+train_lstm <- function(model, model_name, input_data, lstm_config) {
   summary(model)
   
   # train model
-  m_fit <- model %>%
-    fit(input_data$d_vectorized$train_in,
-        input_data$d_vectorized$train_out,
-        batch_size = lstm_config$batch_size,
-        epochs = lstm_config$n_epochs,
-        validation_split = lstm_config$validation_split,
-        shuffle = lstm_config$shuffle,
-        callbacks = lstm_config$early_stop
-    )
+  if(lstm_config$include_early_stop) {
+    m_fit <- model %>%
+      fit(input_data$d_vectorized$train_in,
+          input_data$d_vectorized$train_out,
+          batch_size = lstm_config$batch_size,
+          epochs = lstm_config$n_epochs,
+          validation_split = lstm_config$validation_split,
+          shuffle = lstm_config$shuffle,
+          callbacks = lstm_config$early_stop
+      )  
+  } else {
+    m_fit <- model %>%
+      fit(input_data$d_vectorized$train_in,
+          input_data$d_vectorized$train_out,
+          batch_size = lstm_config$batch_size,
+          epochs = lstm_config$n_epochs,
+          validation_split = lstm_config$validation_split,
+          shuffle = lstm_config$shuffle
+      )  
+  }
   
   # generate predictions
   preds <- model %>% predict(input_data$d_vectorized$test_in)
@@ -54,7 +65,7 @@ train_lstm <- function(model, model_name, input_data, lstm_config, save_model = 
   d_tidy_preds <- tidy_preds(preds, input_data, input_data$exp_run_id)
   
   # save model
-  if (save_model) {model %>% save_model_hdf5(here(glue::glue("models/", {model_name}, "_mod.h5")))}
+  if (lstm_config$save_model) {model %>% save_model_hdf5(here(glue::glue("models/", {model_name}, "_mod.h5")))}
   
   list(fit = m_fit, d_preds = d_tidy_preds)
 }

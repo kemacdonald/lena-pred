@@ -125,7 +125,7 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
   ylims <- c(min(norm_pitch_vals) - buffer, 
              max(norm_pitch_vals) + buffer)
   
-  raw_pitch_max <- max(df_raw$pitch_original) + 100
+  raw_pitch_max <- max(df_raw$pitch_original, na.rm = T) + 100
   
   # plot raw pitch contour
   orig_raw_pitch <- df_raw %>%
@@ -152,7 +152,8 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
     ggplot(aes(time, z_log_pitch_interp)) +
     geom_line(size = 1, color = "#756bb1") +
     guides(fill = F) +
-    lims(y = ylims) +
+    lims(y = c(-2.5, 2.5)) +
+    #lims(y = ylims) +
     labs(x = "time (ms)", y = "normalized log pitch") +
     facet_wrap(~seg_id, scales = "free_x") +
     theme(legend.position = 'top') 
@@ -175,7 +176,8 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
   segmented_plot <-  df_preds_expanded %>%
     ggplot(aes(time_ms, pred)) +
     geom_line(size = 1, color = "#756bb1") +
-    lims(y = ylims) +
+    #lims(y = ylims) +
+    lims(y = c(-2.5, 2.5)) +
     guides(fill = F) +
     facet_wrap(~time_bin_id, scales = "free_x", nrow =1) +
     theme(legend.position = 'top',

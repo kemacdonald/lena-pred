@@ -26,9 +26,7 @@ Extract preds from different runs of experiment
 
 ```{r}
 d <- flatten(d_list) %>% map2_df(.y = names(.), .f = extract_preds)
-
-# reverses order of factor labels for plotting
-d$speech_register <- factor(d$speech_register) %>% fct_rev()
+d$speech_register <- factor(d$speech_register) %>% fct_rev() # reverses order of factor labels for plotting
 ```
 
 ### ADS vs. CDS average predictability
@@ -102,13 +100,20 @@ mb_ms %>%
 ### Predictability as a function of within-utterance position
 
 ```{r}
+too_short_list <- d %>% 
+  ungroup() %>% 
+  distinct(seg_id, time_bin_id) %>% 
+  count(seg_id) %>% 
+  filter(n <= 1) %>% 
+  pull(seg_id)
+
 n_bins <- 10
 
 d_within_utt <- d %>% 
-  filter(is_target_cluster == TRUE) %>% 
+  filter(is_target_cluster == TRUE, !(seg_id %in% too_short_list)) %>% 
   mutate(time_bin_id_num = as.numeric(time_bin_id)) %>% 
   group_by(seg_id) %>% 
-  mutate(time_bin_within_utt = cut_interval(time_bin_id_num, n = n_bins, labels = F))
+  mutate(time_bin_within_utt = cut_interval(time_bin_id_num, n_bins, labels = F))
 
 ss_within_utt <- d_within_utt %>% 
   group_by(seg_id, speaker_id, time_bin_within_utt, speech_register) %>% 
@@ -175,9 +180,9 @@ ms_prop_train <- ss_prop_train %>%
 ms_prop_train %>% 
   ggplot(aes(x = as_factor(prop_cds_train), y = empirical_stat, 
              fill = speech_register, group = speech_register)) +
-  geom_col(position = 'dodge', width = 0.45) + 
+  geom_col(position = 'dodge', width = 0.3) + 
   geom_linerange(aes(ymin = ci_lower, ymax = ci_upper), size =1,
-                 position=position_dodge(width=0.45)) +
+                 position=position_dodge(width=0.3)) +
   scale_fill_ptol() +
   lims(y = c(0, NA)) +
   labs(x = "Prop. CDS in Training Data", y = "Mean Prob. Correct") +
@@ -189,7 +194,9 @@ ms_prop_train %>%
 Plot the distribution of success and errors with the cluster shapes
 
 ```{r, fig.width=8, out.width="95%"}
-d_kmeans <- read_rds(here(config_obj$paths_config$pitch_sum_path, "lena-pred-kmeans-outputs.rds"))
+d_kmeans <- read_rds(here(paste0(config_obj$paths_config$pitch_sum_path, 
+                                 "lena-pred-kmeans-outputs-", 
+                                 config_obj$exp_config$dataset_name, ".rds")))
 shape_val <- "shapes_12-run1"
 d_shapes <- d_kmeans[[shape_val]]
 cluster_shapes <- plot_cluster_shapes(d_shapes$centers, scaled = TRUE)

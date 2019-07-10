@@ -138,9 +138,12 @@ relabel_bins <- function(d) {
     left_join(d, ., by = c("seg_id", "time_bin"))
 }
 
-map_get_clusters <- function(k_list, run_id, d, scale_coefs = TRUE, iter_max = 20) {
-  names(k_list) <- paste0("shapes_", as.character(k_list), "-run", run_id)
-  k_list %>% furrr::future_map(.f = get_cluster_assignments, df = d, scale_coefs = scale_coefs, iter_max = iter_max) 
+map_get_clusters <- function(k_list, run_id, d, scale_coefs = "scaled", iter_max = 20) {
+  names(k_list) <- paste0("shapes_", as.character(k_list), "-", run_id)
+  
+  if (scale_coefs == "scaled") {scale_bool <- TRUE} else {scale_bool <- FALSE}
+  
+  k_list %>% furrr::future_map(.f = get_cluster_assignments, df = d, scale_coefs = scale_bool, iter_max = iter_max) 
 }
 
 # returns kmeans cluster assignments for each 100 ms time bin

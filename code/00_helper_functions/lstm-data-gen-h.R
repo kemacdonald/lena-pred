@@ -1,29 +1,27 @@
-## LSTM dataset generation helpers ---------------------------------------------------
+# LSTM dataset generation helpers ---------------------------------------------------
 
+# Build many LSTM Datasets -----------------------------------------------------
 # wrapper function to map the dataset generator over a list of proportion CDS values
 # this allows us to experiment with the amount of CDS in the training data 
-
-build_lstm_datasets <- function(d, d_name, prop_cds_train_list, dnn_config) {
-  # sample one set of test data to be used across all the different training sets
-  d_test <- get_test_data(d, dnn_config)
-
-  # # sample training data for each proportion of CDS
+build_lstm_datasets <- function(d, d_name, prop_cds_train_list, dnn_config, test_data) {
+  # sample training data for each proportion of CDS
   d_out <- prop_cds_train_list %>%
     furrr::future_map(.f = build_one_lstm_dataset,
       d = d,
-      d_test = d_test,
+      d_test = test_data,
       dnn_config = dnn_config)
 
   flatten(d_out)
 }
 
+# Build one LSTM Dataset --------------------------------------------------
 # dataset sampling function based on prop of CDS in training data and prop of data for train/test
 # maps over a list of dataframes where each dataframe has cluster sequences with 
 # a different number of q-shapes
 # returns a list of relevant objects: vectorized data for lstm, some tests of sampling functions
 
 build_one_lstm_dataset <- function(d, prop_cds_train, d_test, dnn_config) {
-  # Sample a pool of training segments from one of the datasets returns data frame
+  # Sample a pool of training segments from one of the datasets and return data frame
   d_train <- get_train_data(d, 
                             test_seg_list = unique(d_test$seg_id),
                             prop_cds = prop_cds_train)
@@ -52,6 +50,7 @@ build_one_lstm_dataset <- function(d, prop_cds_train, d_test, dnn_config) {
   obj
 }
 
+# Generate LSTM-ready Dataset --------------------------------------------------
 # converts a dataframe with cluster sequences to a list of vectorized train/test
 # sequences ready to be fed to the LSTM
 generate_lstm_data <- function(d, d_train, d_test, max_seq_len, skip) {
@@ -86,6 +85,7 @@ generate_lstm_data <- function(d, d_train, d_test, max_seq_len, skip) {
   d_out
 }
 
+# Convert cluster sequences to LSTM subsequences --------------------------------------------------
 # create a list of lists that stores all information for training and test
 # each element is a question/answer pairs for the model to learn
 # questions are the previous n pitch shapes
@@ -110,35 +110,9 @@ make_lstm_sub_sequences <- function(d_input, max_seq_len, skip) {
     transpose()
 }
 
+# Misc dataset generation helper functions  --------------------------------------------------
 one_hot_encode <- function(cluster_list, cluster_dict) {
   cluster_list %>% map(~ cluster_dict[.x, ]) 
-}
-
-get_test_data <- function(d, dnn_config) {
-  # get the number of segements to sample from each speaker for ADS and IDS
-  d_seg_ids <- d %>% distinct(seg_id, speech_register) 
-  n_total <- nrow(d_seg_ids)
-  n_speakers <- d %>% distinct(speaker_id) %>% nrow()
-  # get the number of training vs. test segments 
-  n_to_sample_train <- as.integer(n_total * dnn_config$prop_train)
-  n_to_sample_test <- n_total - n_to_sample_train
-  
-  # get the number of segs to sample from each  speaker
-  n_per_speech_reg_test <- ceiling( (n_to_sample_test * dnn_config$prop_test_cds) / n_speakers )
-  
-  # get seg ids for test data and add a sample id to keep track 
-  test_seg_ids <- d %>%
-    distinct(seg_id, speech_register, speaker_id) %>%
-    group_by(speech_register, speaker_id) %>%
-    sample_n(n_per_speech_reg_test, replace = FALSE) %>%
-    ungroup() %>%
-    select(seg_id) %>%
-    mutate(sample_id = 1:n())
-
-  d %>%
-    filter(seg_id %in% test_seg_ids$seg_id) %>%
-    select(seg_id, speech_register, time_bin_id, duration_ms) %>%
-    left_join(., test_seg_ids, by = c("seg_id"))
 }
 
 get_train_data <- function(d, test_seg_list, prop_cds) {
@@ -188,7 +162,6 @@ sample_matched_duration <- function(target_duration, d_train, register) {
   d_out
 }
 
-# check proportion of CDS/IDS duration in the training data
 check_prop_cds_train <- function(d) {
   d %>% 
     distinct(seg_id, speech_register, duration_ms, sample_id) %>% 
@@ -197,14 +170,12 @@ check_prop_cds_train <- function(d) {
     mutate(prop = duration / sum(duration))
 }
 
-# check proportion of CDS/IDS utterances in the test data
 check_prop_cds_test <- function(d) {
   d %>% 
     distinct(seg_id, speech_register, sample_id) %>% 
     count(speech_register, name = "n_utts") 
 }
 
-# get duration of utterances  
 get_reg_duration <- function(d, register) {
   d %>% 
     filter(speech_register == register) %>% 
@@ -228,7 +199,7 @@ vectorize_data <- function(data_list, data_type) {
   
 } 
 
-# clean up names of predictions
+# clean up names of predictions variables
 fix_names <- function(x) gsub("V", "class_", x)
 
 # upsample_train_data <- function(seg_id_in, df, sample_id) {

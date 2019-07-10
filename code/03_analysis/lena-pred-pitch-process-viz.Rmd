@@ -123,6 +123,7 @@ cluster_shapes <- plot_cluster_shapes(d_shapes$centers, scaled = TRUE)
 plot_grid(cluster_shapes, dist_clusters, scale = c(0.9, 0.7))
 ```
 
+
 ```{r plot reconstructed pitch contour}
 recontructed_plot <- plot_reconstructed_pitch(one_seg_to_plot, 
                          df_raw = d, 
