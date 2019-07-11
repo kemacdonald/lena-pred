@@ -2,8 +2,8 @@
 source(here::here("code/00_config/lena-pred-libraries.R"))
 source(here("code/00_config/lena-pred-config.R"))
 plan(multiprocess)
-# runs <- c("run1", "run2", "run3", "run4", "run5")
-runs <- c("run1")
+runs <- c("run1", "run2", "run3", "run4", "run5")
+#runs <- c("run1") # for debugging
 
 d_results <- runs %>% 
   map(.f = run_experiment, 
