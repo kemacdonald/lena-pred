@@ -112,5 +112,3 @@ tidy_preds <- function(preds, d, run_id, nqshapes) {
            dataset = str_to_lower(dataset),
            correct_pred = ifelse(target_cluster == predicted_cluster, 1, 0)) 
 }
-
-

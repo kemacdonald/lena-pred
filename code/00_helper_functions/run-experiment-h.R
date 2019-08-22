@@ -28,6 +28,10 @@ generate_cluster_dataset <- function(run_id, config_object) {
   
   d <- d %>% mutate(exp_run_id = run_id)
   
+  if (config_object$exp_config$dataset_name == "IDSLabel") {
+    d <- d %>% mutate(speaker_id = str_split(seg_id, "_", simplify = TRUE)[1])
+  }
+  
   # Batch interpolate  ------------------------------------------------------
   d_interp <- batch_interpolate(d, config_object$loess_config) 
   # scale the log interpolated pitch values

@@ -8,9 +8,6 @@ output: html_document
 ```{r libraries}
 source(here::here("code/00_config/lena-pred-libraries.R"))
 source(here("code/00_config/lena-pred-config.R"))
-source(here("code/00_helper_functions/plotting-h.R"))
-source(here("code/00_helper_functions/pitch-extraction-h.R"))
-
 knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.asp = 0.8, 
                       fig.width = 8, fig.align = 'center', out.width = "80%")
 ```
@@ -18,14 +15,9 @@ knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.asp = 0.8,
 Load extracted pitch contours
 
 ```{r extracted pitch estimates}
-d <- read_rds(here(config_obj$paths_config$pitch_sum_path, 
-                   paste0("lena-pred-pitch-vals-", config_obj$exp_config$dataset_name, ".rds")))
-
-d_kmeans <- read_rds(here(config_obj$paths_config$pitch_sum_path, 
-                          paste0("lena-pred-kmeans-outputs-", config_obj$exp_config$dataset_name, ".rds")))
-
-d_by_bin <- read_rds(here(config_obj$paths_config$pitch_sum_path, 
-                          paste0("lena-pred-nested-pitch-vals-", config_obj$exp_config$dataset_name, ".rds")))
+d <- read_lena_pred_data("lena-pred-pitch-vals", config_obj, f_type = "rds", is_pitch = TRUE)
+d_kmeans <- read_lena_pred_data("lena-pred-kmeans-outputs", config_obj, "rds", is_pitch = TRUE)
+d_by_bin <- read_lena_pred_data("lena-pred-nested-pitch-vals", config_obj, "rds", is_pitch = TRUE)
 ```
 
 ## Plot raw pitch contours

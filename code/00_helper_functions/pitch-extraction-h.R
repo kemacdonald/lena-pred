@@ -22,7 +22,14 @@ get_pitch_contour <- function(file_path, p_config) {
 }
 
 # takes path to wav and extracts speaker for manybabies audio files
-get_speaker_id_mb <- function(s) {str_extract(s, "(?<=_?)\\d+")}
+get_speaker_id <- function(s, dataset_id) {
+  if (dataset_name == "ManyBabies") {
+    str_extract(s, "(?<=_?)\\d+")
+  } else if (dataset_name == "IDSLabel") {
+    str_split(s, "_", simplify = TRUE)[1]
+  }
+  
+}
 
 # tidy audio file metadata based on checking the dataset in the file path
 # returns a data frame with appropriate metadata extracted from file path
@@ -44,17 +51,16 @@ tidy_seg_meta <- function(d, file_path, file_path_spl) {
              speech_register = file_path_spl[10],
              word_category = file_path_spl[11],
              seg_id = str_remove(file_path_spl[12], '.wav'),
-             speaker_id = get_speaker_id_mb(seg_id)) %>% 
+             speaker_id = get_speaker_id_mb(seg_id, "ManyBabies")) %>% 
       select(seg_id, dataset, speech_register, speaker_id, word_category, pitch, voiced, time, ampl, loudness, path_to_wav)
   } else if ( str_detect(file_path, "IDSLabel") ) {
-    # TODO: make this work with whatever metadata we can extract from IDSLabel filenames
     d %>%
       mutate(dataset = file_path_spl[9],
              path_to_wav = file_path,
              speech_register = file_path_spl[10],
              word_category = NA,
              seg_id = str_remove(file_path_spl[11], '.wav'),
-             speaker_id = NA) %>%
+             speaker_id = get_speaker_id(seg_id, "IDSLabel")) %>%
       select(seg_id, dataset, speech_register, word_category, pitch, voiced, time, ampl, loudness, path_to_wav)
   } else {
     print("invalid specification of dataset in path_to_wav in config file")

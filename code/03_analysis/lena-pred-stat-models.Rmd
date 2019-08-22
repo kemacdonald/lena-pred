@@ -25,7 +25,6 @@ d_list <- read_rds(here(data_path, "lena-pred-lstm-preds.rds"))
 delta_val <- 0.9
 ```
 
-
 ```{r}
 get_speaker_id_mb <- function(s) {str_extract(s, "(?<=_?)\\d+")}
 

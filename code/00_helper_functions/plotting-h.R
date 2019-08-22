@@ -1,7 +1,7 @@
 ## Some plotting functions 
 
 # generating new theme
-kyle_theme <- function(base_size = 16,
+kyle_theme <- function(base_size = 24,
                        base_family = "",
                        base_line_size = base_size / 170,
                        base_rect_size = base_size / 170){
@@ -12,20 +12,28 @@ kyle_theme <- function(base_size = 16,
       plot.title = element_text(
         color = rgb(25, 43, 65, maxColorValue = 255), 
         face = "bold",
-        size = 14,
+        size = rel(0.85),
         hjust = 0),
       plot.subtitle = element_text(
         color = rgb(25, 43, 65, maxColorValue = 255), 
-        size = 12,
+        size = rel(0.75),
         hjust = 0,
         vjust = 1),
+      legend.title = element_text(
+        color = rgb(105, 105, 105, maxColorValue = 255),
+        size = rel(0.75)
+      ),
+      legend.text = element_text(
+        color = rgb(105, 105, 105, maxColorValue = 255),
+        size = rel(0.6)
+      ),
       panel.border = element_rect(fill = NA, colour = "grey20"),
       axis.title = element_text(
         color = rgb(105, 105, 105, maxColorValue = 255),
         size = rel(0.75)),
       axis.text = element_text(
         color = rgb(105, 105, 105, maxColorValue = 255),
-        size = rel(0.5)),
+        size = rel(0.55)),
       panel.grid.major = element_blank(),   
       panel.grid.minor = element_blank(),   
       

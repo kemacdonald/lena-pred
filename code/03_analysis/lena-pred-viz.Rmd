@@ -8,99 +8,134 @@ output: html_document
 ```{r libraries and config, warning=FALSE, include=FALSE}
 source(here::here("code/00_config/lena-pred-libraries.R"))
 source(here("code/00_config/lena-pred-config.R"))
-source(here("code/00_helper_functions/plotting-h.R"))
-source(here("code/00_helper_functions/analysis-h.R"))
-source(here("code/00_helper_functions/pitch-extraction-h.R"))
+d <- read_lena_pred_data("lena-pred-lstm-preds", config_obj, "rds")
+d_persist <- read_lena_pred_data("lena-pred-persist-results", config_obj, "csv")
+
+if (config_obj$exp_config$dataset_name == "IDSLabel") {
+  d <- d %>% 
+    mutate(speaker_id = str_split(seg_id, "_", simplify = TRUE)[1])  
+}
 ```
 
-Read model predictions 
-
-```{r}
-d_list <- read_rds(here(config_obj$paths_config$lstm_sum_path, "lena-pred-lstm-preds.rds"))
-d_persist <- read_csv(here(config_obj$paths_config$lstm_sum_path, "lena-pred-persist-results-mb.csv"))
-```
-
-## ManyBabies
-
-Extract preds from different runs of experiment
-
-```{r}
-d <- flatten(d_list) %>% map2_df(.y = names(.), .f = extract_preds)
-d$speech_register <- factor(d$speech_register) %>% fct_rev() # reverses order of factor labels for plotting
-```
-
-### ADS vs. CDS average predictability
-
-Baseline persistence model results. 
+## Baseline persistence model results. 
 
 ```{r}
 d_persist %>% 
   ggplot(aes(x = as_factor(n_qshapes), y = acc, 
              color = as_factor(prop_cds),
              group = prop_cds)) +
-  geom_point(size = 1.5) +
+  geom_point(size = 2) +
   geom_line(size = 1) +
   scale_color_ptol() +
   labs(x = "Num of Q-shapes", y = "Mean Accuracy", 
-       color = "Prop. CDS in Training",
+       color = "Prop. CDS in Dataset",
        title = "Persistence Model")
 ```
 
+## ADS vs. CDS average predictability
+
 Replicate the key analysis in Rasanen et al. (2018), which compared the average predictability of ADS vs. CDS.
 
-First we aggregate the results within each run of the experiment.
+First we aggregate the results for each run of the experiment for only the 50/50 split of CDS in the training data.
 
 ```{r}
-ss_ms <- d %>% 
-  filter(is_target_cluster == TRUE) %>% 
-  group_by(seg_id, speech_register, n_qshapes, speaker_id, duration_ms, 
-           exp_run_id) %>% 
-  summarise(m_prob_exp = mean(prob_mass),
-            m_acc_exp = mean(correct_pred))
+d_analysis <- d %>% 
+  filter(prop_cds_train == 0.5, is_target_cluster == TRUE) %>% 
+  mutate(exp_run_id = str_remove(exp_run_id, "run"),
+         duration_ms = as.numeric(duration_ms),
+         duration_sec = duration_ms / 1000,
+         time_bin_id_num = as.numeric(time_bin_id)) 
+
+d_results <- d_analysis %>% 
+  group_by(exp_run_id) %>% 
+  nest() %>% 
+  mutate(results = map(data, analyze_one_exp, metric = m_prob))
 ```
 
-Then we aggregate across expriment runs. 
+Now make the key plots:
 
 ```{r}
-mb_ms <- ss_ms %>% 
-  group_by(seg_id, speech_register, n_qshapes, speaker_id, duration_ms) %>% 
-  summarise(m_prob = mean(m_prob_exp),
-            m_acc = mean(m_acc_exp))
+d_results %>% 
+  select(exp_run_id, results) %>% 
+  unnest() %>% 
+  ggplot(aes(x = exp_run_id, y = empirical_stat, color = speech_register)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_dodge(width = 0.1),
+                  size = 0.8) +
+  ylim(0, 0.6) +
+  labs(x = "Experiment Run ID", y = "Mean Prob.", color = "Speech Register") +
+  scale_color_ptol() 
 ```
 
-Now make some plots:
+```{r}
+ss <- d_analysis %>% 
+  filter(exp_run_id == "1") %>% 
+  group_by(seg_id, speaker_id, speech_register) %>% 
+  summarise(m_seg = mean(prob_mass), m_acc_seg = mean(correct_pred)) %>% 
+  group_by(speaker_id, speech_register) %>% 
+  summarise(m_prob = mean(m_seg), m_acc = mean(m_acc_seg))
+```
 
 ```{r}
+delta_val <- 0.9
+ss_model <- d_analysis %>% 
+  filter(exp_run_id == "1") %>% 
+  group_by(seg_id, speaker_id, speech_register) %>% 
+  summarise(m_seg = mean(prob_mass), m_acc_seg = mean(correct_pred))
+
+m_prob_priors <- get_prior(m_seg ~ speech_register + (1 + speech_register|speaker_id), 
+                         data = ss_model, 
+                         family = "beta")
+
+m_prob_fit <- brm(m_seg ~ speech_register + (1 + speech_register|speaker_id), 
+                 data = ss_model, 
+                 family = "beta",
+                 prior = m_prob_priors,
+                 control = list(adapt_delta = delta_val))
+
+post <- posterior_samples(m_prob_fit)
+  
+m_summary <- post %>% 
+    mutate(p_IDS = inv_logit_scaled(b_Intercept),
+           p_ADS = inv_logit_scaled(b_Intercept + b_speech_registerADS),
+           diff_correct = p_ADS - p_IDS,
+           sample_id = 1:nrow(.)) %>% 
+    select(sample_id, p_ADS, p_IDS, diff_correct) %>% 
+    gather(key = "type", value = "value", -sample_id) %>% 
+    group_by(type) %>% 
+    median_hdi(.width = 0.9)
+```
+
+
+```{r eval=FALSE, include=FALSE}
 plot_model_output(mb_ms, col_name = m_prob, y_axis_lab = "Mean Prob. Mass")
 ```
 
-### Accuracy predicting next cluster
-
-```{r}
-plot_model_output(mb_ms, col_name = m_acc, y_axis_lab = "Mean Accuracy")
-```
-
-### Predictability as a function of utterance length
+## Predictability as a function of utterance length
 
 Here, we replicate Rasanen et al. (2018)'s analysis of how the predictability of the intonation changes as a function of position in the utterances, and whether the differences in IDS and ADS would be specific to certain position(s).
 
 Plot the F0 predictability measures as a function of duration of the utterance for both speech registers.
 
 ```{r}
-mb_ms %>% 
-  group_by(seg_id, speech_register, speaker_id, duration_ms) %>% 
-  summarise(m_prob = mean(m_prob)) %>% 
-  ggplot(aes(x = as.numeric(duration_ms) / 1000, y = m_prob, color = speech_register)) +
+d_analysis %>% 
+  filter(duration_sec <= 15) %>% 
+  group_by(seg_id, speech_register, speaker_id, duration_sec, exp_run_id) %>% 
+  summarise(m_prob = mean(prob_mass)) %>% 
+  ggplot(aes(x = duration_sec, y = m_prob, color = speech_register)) +
   geom_point(alpha = 0.4, size = 2) +
   geom_smooth(method = "lm", size = 1.5) +
+  lims(y = c(0,1)) +
   scale_color_ptol() +
-  labs(x = "Utterance Duration (sec)", y = "Mean Prob. of Correct Prediction")
+  labs(x = "Utterance Duration (sec)", y = "Mean Prob.",color = "Speech Register") +
+  facet_wrap(~ exp_run_id, nrow = 1) +
+  theme(legend.position = "top")
 ```
 
-### Predictability as a function of within-utterance position
+## Predictability as a function of within-utterance position
 
 ```{r}
-too_short_list <- d %>% 
+too_short_list <- d_analysis %>% 
   ungroup() %>% 
   distinct(seg_id, time_bin_id) %>% 
   count(seg_id) %>% 
@@ -109,62 +144,90 @@ too_short_list <- d %>%
 
 n_bins <- 10
 
-d_within_utt <- d %>% 
-  filter(is_target_cluster == TRUE, !(seg_id %in% too_short_list)) %>% 
-  mutate(time_bin_id_num = as.numeric(time_bin_id)) %>% 
-  group_by(seg_id) %>% 
+d_within_utt <- d_analysis %>% 
+  filter(!(seg_id %in% too_short_list)) %>% 
+  group_by(seg_id, exp_run_id) %>% 
   mutate(time_bin_within_utt = cut_interval(time_bin_id_num, n_bins, labels = F))
 
 ss_within_utt <- d_within_utt %>% 
-  group_by(seg_id, speaker_id, time_bin_within_utt, speech_register) %>% 
-  summarise(m_prob = mean(prob_mass), m_acc = mean(correct_pred))
+  group_by(seg_id, speaker_id, time_bin_within_utt, speech_register, exp_run_id) %>% 
+  summarise(m_seg_prob = mean(prob_mass), m_acc_seg = mean(correct_pred)) %>% 
+  group_by(speaker_id, time_bin_within_utt, speech_register, exp_run_id) %>% 
+  summarise(m_prob = mean(m_seg_prob), m_acc = mean(m_acc_seg)) 
 
 ms_within_utt <- ss_within_utt %>% 
-  group_by(time_bin_within_utt, speech_register) %>% 
+  group_by(time_bin_within_utt, speech_register, exp_run_id) %>% 
   tidyboot_mean(column = m_prob) 
 
 ms_within_utt %>% 
   ggplot(aes(x = as_factor(time_bin_within_utt), y = empirical_stat, 
              color = speech_register, group = speech_register)) +
-  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_jitter(0.03)) +
   geom_line(size = 1) +
   scale_color_ptol() +
   lims(y = c(0, NA)) +
-  labs(x = "Relative position in Utterance", y = "Mean Prob. Correct Prediction") +
-  theme(legend.position = "top")
+  labs(x = "Relative position in Utterance", y = "Mean Prob.", color = "Speech Register") +
+  theme(legend.position = "top") +
+  facet_wrap(~ exp_run_id, nrow = 1)
 ```
 
 Split this plot by long vs. short utterances:
 
 ```{r}
-split_val <- 3000
+split_val <- 1000
 
 d_within_utt <- d_within_utt %>% 
   mutate(utt_length_type = ifelse(duration_ms <= split_val, "short", "long"))
 
 ss_within_utt <- d_within_utt %>% 
-  group_by(seg_id, speaker_id, time_bin_within_utt, speech_register, utt_length_type) %>% 
-  summarise(m_prob = mean(prob_mass))
+  group_by(seg_id, speaker_id, time_bin_within_utt, speech_register, 
+           utt_length_type, exp_run_id) %>% 
+  summarise(m_prob_seg = mean(prob_mass)) %>% 
+  group_by(speaker_id, time_bin_within_utt, speech_register, utt_length_type, exp_run_id) %>% 
+  summarise(m_prob = mean(m_prob_seg)) 
 
 ms_within_utt <- ss_within_utt %>% 
-  group_by(time_bin_within_utt, speech_register, utt_length_type) %>% 
+  group_by(time_bin_within_utt, speech_register, utt_length_type, exp_run_id) %>% 
   tidyboot_mean(column = m_prob) 
 
 ms_within_utt %>% 
   ggplot(aes(x = as_factor(time_bin_within_utt), y = empirical_stat, 
              color = speech_register, group = speech_register)) +
   geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper), 
-                  position = position_jitter(0.2)) +
+                  position = position_dodge(0.1)) +
   geom_line(size = 1,
-            position = position_jitter(0.2)) +
+            position = position_dodge(0.1)) +
   scale_color_ptol() +
+  guides(color = "none") + 
   lims(y = c(0, NA)) +
-  labs(x = "Relative position in Utterance", y = "Mean Prob. Correct") +
-  theme(legend.position = "top") +
-  facet_wrap(~fct_rev(utt_length_type), ncol = 2)
+  labs(x = "Relative position in Utterance", y = "Mean Prob.", color = "Speech Register") +
+  theme(legend.position = "right") +
+  facet_grid(fct_rev(utt_length_type) ~ exp_run_id)
 ```
 
-### Predictability as a function of CDS in training
+```{r}
+ms <- d_within_utt %>% 
+  group_by(speaker_id, seg_id, speech_register, utt_length_type, exp_run_id) %>% 
+  summarise(m_seg = mean(prob_mass)) %>% 
+  group_by(speaker_id, speech_register, utt_length_type, exp_run_id) %>% 
+  summarise(m_speaker = mean(m_seg)) %>% 
+  group_by(speech_register, utt_length_type, exp_run_id) %>% 
+  tidyboot_mean(column = m_speaker) 
+
+ms %>%   
+  ggplot(aes(x = fct_rev(utt_length_type), y = empirical_stat, color = speech_register)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_dodge(0.1),
+                  size = 0.8) +
+  ylim(0, 0.4) +
+  guides(color = "none") +
+  labs(x = "Utterance Length", y = "Mean Prob.", color = "Speech Register") +
+  scale_color_ptol() +
+  facet_wrap(~exp_run_id)
+```
+
+## Predictability as a function of CDS in training
 
 ```{r}
 ss_prop_train <- d %>% 
@@ -189,7 +252,7 @@ ms_prop_train %>%
   theme(legend.position = "top")
 ```
 
-### Error analysis
+## Error analysis
 
 Plot the distribution of success and errors with the cluster shapes
 
@@ -227,12 +290,117 @@ plot_grid(cluster_shapes, target_dist_plot, errors_plot,
           scale = c(1, 0.8, 0.8))
 ```
 
-## IDSLabel
 
-Below we use the same code with minor modifications to visualize the IDSLabel dataset.
+## IDSLabel-specific Analyses
 
-### ADS vs. CDS average predictability
+Join participant metadata
 
-### Accuracy predicting next cluster
+```{r}
+idslab_meta <- read_csv(here("data/00_metadata/IDS_label/", "ACLEW_list_of_corpora-restricted20171031.csv")) %>% 
+  rename(speaker_id = ID) %>% 
+  select(speaker_id, Corpus, AgeMonths, chi_gender)
 
-### Predictability as a function of utterance length
+
+vd_demo <- read_csv(here("data/00_metadata/IDS_label/", "vd_demo_update-restricted20171031.csv")) %>% 
+  rename(speaker_id = ID) %>% 
+  select(speaker_id, Corpus, AgeMonths, chi_gender)
+
+chi_ages <- read_csv(here("data/00_metadata/IDS_label/", 
+                          "proposed_sample_summary-22Jun16 with substitutes-FINALbeforeIDSlabelannotation-restricted20171031.csv")) %>% 
+  rename(speaker_id = `Sample ID`,
+         chi_gender = Gender) %>% 
+  select(speaker_id, Corpus, AgeMonths, chi_gender)
+
+full_meta_idslab <- bind_rows(idslab_meta, vd_demo, chi_ages) %>% distinct()
+
+process_mcdiv_id <- function(s) {
+  if (str_length(s) > 6) {
+    paste(str_split(s, "-", simplify = T)[1],
+      str_split(s, "-", simplify = T)[2],
+      sep = "-")
+  } else {
+    s
+  }
+}
+
+ss$speaker_id <- map_chr(ss$speaker_id, process_mcdiv_id)
+
+ss <- ss %>% left_join(full_meta_idslab, by = "speaker_id")
+```
+
+Individual differences in predictability of IDS vs. ADS
+
+```{r}
+get_register_diff <- function(x) {
+  ads_val <- x[2]
+  ids_val <- x[1]
+  ads_val - ids_val
+}
+
+ss <- ss %>% 
+  group_by(speaker_id) %>% 
+  mutate(reg_diff = get_register_diff(m_prob))
+
+ss %>% 
+  filter(!is.na(reg_diff)) %>% 
+  distinct(speaker_id, reg_diff) %>% 
+  ggplot(aes(x = reg_diff, y = fct_reorder(speaker_id, reg_diff))) +
+  geom_point(size = 4, alpha = 0.5) +
+  lims(x = c(-0.3, 0.3)) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  coord_flip() +
+  geom_vline(xintercept = 0, lty = "dashed") +
+  labs(x = "Predictability Difference \n (Larger value means ADS more predictable)", y = "Child ID")
+```
+
+Predictability of both registers a function of age
+
+```{r}
+ss %>% 
+  ggplot(aes(x = AgeMonths, y = m_prob, color = speech_register)) +
+  geom_point(size = 2.5, alpha = 0.5) +
+  labs(x = "Child's Age (months)", y = "Mean Prob.", color = "Speech Register") + 
+  geom_smooth(method = "lm", se = F, size = 2) +
+  scale_color_ptol() +
+  theme(legend.position = "top")
+```
+
+Diff in predictability as a function of age
+
+```{r}
+ss %>% 
+  ggplot(aes(x = AgeMonths, y = reg_diff)) +
+  geom_point(size = 2.5, alpha = 0.5) +
+  labs(x = "Child's Age (months)", y = "Predictability Difference (ADS vs. IDS)") + 
+  geom_smooth(method = "lm", se = F, size = 2) +
+  scale_color_ptol() +
+  theme(legend.position = "top")
+```
+
+Predictability over the course of the day
+
+Predictability over the course of a conversational block
+
+## Sample some high vs. low predictability utterances
+
+```{r}
+ss_seg <- d_analysis %>% 
+  filter(exp_run_id == "1") %>% 
+  group_by(seg_id, speaker_id, speech_register, duration_sec) %>% 
+  summarise(m_seg = mean(prob_mass), m_acc_seg = mean(correct_pred)) %>% 
+  distinct(seg_id, m_seg, duration_sec) 
+  
+ss_seg$pred_quartile = ntile(ss_seg$m_seg, n = 4)  
+```
+
+```{r}
+samples <- ss_seg %>% 
+  ungroup() %>% 
+  group_by(pred_quartile, speech_register) %>% 
+  sample_n(1)
+
+samples
+```
+
+
+

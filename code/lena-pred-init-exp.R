@@ -2,8 +2,8 @@
 source(here::here("code/00_config/lena-pred-libraries.R"))
 source(here("code/00_config/lena-pred-config.R"))
 plan(multiprocess)
-runs <- c("run1", "run2", "run3", "run4", "run5")
-#runs <- c("run1") # for debugging
+# runs <- c("run1", "run2", "run3", "run4", "run5")
+runs <- c("run1") # for debugging
 
 d_results <- runs %>% 
   map(.f = run_experiment, 
@@ -18,5 +18,7 @@ write_rds(d_results,
                       config_obj$kmeans_config$scale_coefs,
                       ".rds")),
           compress = "gz")
+
+beepr::beep(3)
 
 print("Completed and saved all runs of the experiment!")

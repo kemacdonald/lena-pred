@@ -21,10 +21,14 @@ seg_id_blacklist <- flag_too_few_pitch(d, config_obj$loess_config$min_n_samples_
 d %>% filter(!(seg_id %in% seg_id_blacklist)) -> d
 
 # Save outputs ------------------------------------------------------------
-write(seg_id_blacklist, here(write_path, paste0("lena-pred-seg-blacklist-", config_obj$exp_config$dataset, ".txt")))
+write(seg_id_blacklist, here(write_path, 
+                             paste0("lena-pred-seg-blacklist-", 
+                                    config_obj$exp_config$dataset, ".txt")))
 
 write_rds(d, here(write_path, 
-                  paste0("lena-pred-pitch-vals-pre-interp-", config_obj$exp_config$dataset, ".rds")),
+                  paste0("lena-pred-pitch-vals-pre-interp-",
+                         config_obj$exp_config$dataset, 
+                         ".rds")),
           compress = "gz")
 
 print("Completed pitch extraction")
