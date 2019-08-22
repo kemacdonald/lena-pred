@@ -1,4 +1,5 @@
 run_experiment <- function(run_id, config_object) {
+  # build sequence of cluters data set
   d_clusters <- generate_cluster_dataset(run_id, config_object)
   
   # sample one set of test data to be used across all the different training sets
@@ -7,9 +8,11 @@ run_experiment <- function(run_id, config_object) {
   d_test <- get_test_data(one_clusters_dataset,
                           dnn_config = config_object$dnn_dataset_config,
                           run_id)
-
+  
+  # generate a dnn-ready dataset (vectorize subsequences)
   d_dnn <- generate_dnn_dataset(d_clusters, config_object, run_id, test_data = d_test)
 
+  # train dnn and generate predictions on test data
   d_results <- fit_dnn(d_dnn, config_object, run_id)
 
   print(paste("Completed:", run_id))
@@ -64,7 +67,7 @@ generate_cluster_dataset <- function(run_id, config_object) {
   
   print(paste0("Completed loess fit for: ", run_id))
   
-  # Fit second-order polynomial in each time bin ----------------------------
+  # Fit second-order polynomial for each time bin ----------------------------
   d_by_bin <- d_interp %>%
     group_by(seg_id, dataset, speech_register, speaker_id,
              time_bin_id, duration_ms, speaker_id, exp_run_id) %>%
@@ -79,7 +82,7 @@ generate_cluster_dataset <- function(run_id, config_object) {
                         config_object$kmeans_config$scale_coefs,
                         ".rds")), compress = "gz")
   
-  # Fit polynomial and make predictions based on fit -----------------------
+  # Fit polynomial
   d_by_bin <- d_by_bin %>%
     mutate(poly_coefs = future_map(data, fit_poly, config_object$poly_fit_config$degree_poly)) %>%
     mutate(poly_preds = future_map(poly_coefs, predict_poly))
@@ -112,6 +115,7 @@ get_test_data <- function(d, dnn_config, run_id) {
   d_seg_ids <- d %>% distinct(seg_id, speech_register) 
   n_total <- nrow(d_seg_ids)
   n_speakers <- d %>% distinct(speaker_id) %>% nrow()
+  
   # get the number of training vs. test segments 
   n_to_sample_train <- as.integer(n_total * dnn_config$prop_train)
   n_to_sample_test <- n_total - n_to_sample_train
