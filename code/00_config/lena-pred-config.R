@@ -1,7 +1,7 @@
 # Pitch Config File -------------------------------------------------------
 set.seed(12345)
 datasets <- c( "pilot", "ManyBabies", "IDSLabel")
-dataset_name <- datasets[3]
+dataset_name <- datasets[2]
 prop_cds_vals <-  c(0, 0.25, 0.5, 0.75, 1)
 n_qshapes_vals <- c(6, 12, 24)    
 
