@@ -1,11 +1,10 @@
 source(here::here("code/00_config/lena-pred-libraries.R"))
-dat_path <- "data/03_summaries/rasanen_2018"
+dat_path <- "data/03_summaries/rasanen_2018/"
 
 
 # Polynomial coefs --------------------------------------------------------
-d <- readMat(here(dat_path, "results_19-Oct-2017 21_07_23_ManyBabies_usesyllables0_framesize_100.mat"))
-
-qplot(seq(1, length(blah)), blah, geom = 'line')
+#d <- readMat(paste0(dat_path, "results_19-Oct-2017 21_07_23_ManyBabies_usesyllables0_framesize_100.mat"))
+d <- readMat(paste0(dat_path, "results_19-Oct-2017 21_07_23_ManyBabies_usesyllables0_framesize_100.mat"))
 
 # check okko's coefs
 list_to_df <- function(list_item) {
@@ -15,7 +14,7 @@ list_to_df <- function(list_item) {
 d_coefs <- d$F0PARAMS %>% map_df(list_to_df)
 
 # plot the coefs and cluster assignments 
-clusters <- kmeans(as.matrix(d_coefs), centers = 8 )
+clusters <- kmeans(as.matrix(d_coefs), centers = 8)
 d_coefs %>% mutate(cluster = clusters$cluster) -> d_coefs
 
 ggplot(d_coefs, aes(V1, V2, color = as_factor(cluster))) + 
