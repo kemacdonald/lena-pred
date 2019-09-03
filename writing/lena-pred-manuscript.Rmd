@@ -1,0 +1,92 @@
+---
+title             : "Measuring the prosodic predictability in naturalistic language input"
+shorttitle        : "Prosodic predictability"
+
+author: 
+  - name          : "Kyle MacDonald"
+    affiliation   : "1"
+    corresponding : yes    # Define only one corresponding author
+    address       : "2225 Rolfe Hall, Los Angeles, CA 90095"
+    email         : "kemacdonald@ucla.edu"
+  - name          : "Okko Rasanen"
+    affiliation   : "2"
+  - name          : "Marisa Casillas"
+    affiliation   : "1"
+  - name          : "Anne S. Warlaumont"
+    affiliation   : "1"
+
+affiliation:
+  - id            : "1"
+    institution   : "University of California, Los Angeles"
+  - id            : "2"
+    institution   : "Aalto University, Finland"
+  - id            : "3"
+    institution   : "Max Planck Institute for Psycholinguistics, Nijmegen, The Netherlands"
+
+authornote: |
+  Enter author note here.
+
+abstract: |
+  Enter abstract here
+  
+keywords          : "prosody, information theory"
+wordcount         : "X"
+
+bibliography      : ["r-references.bib"]
+
+floatsintext      : no
+figurelist        : no
+tablelist         : no
+footnotelist      : no
+linenumbers       : yes
+mask              : no
+draft             : no
+
+documentclass     : "apa6"
+classoption       : "man"
+output            : papaja::apa6_pdf
+---
+
+```{r setup, include = FALSE}
+library("papaja")
+```
+
+```{r analysis-preferences}
+# Seed for random number generation
+set.seed(42)
+knitr::opts_chunk$set(cache.extra = knitr::rand_seed)
+```
+
+
+
+# Methods
+We report how we determined our sample size, all data exclusions (if any), all manipulations, and all measures in the study. <!-- 21-word solution (Simmons, Nelson & Simonsohn, 2012; retrieved from http://ssrn.com/abstract=2160588) -->
+
+## Participants
+
+## Material
+
+## Procedure
+
+## Data analysis
+We used `r cite_r("r-references.bib")` for all our analyses.
+
+
+# Results
+
+# Discussion
+
+
+\newpage
+
+# References
+```{r create_r-references}
+r_refs(file = "r-references.bib")
+```
+
+\begingroup
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+
+<div id = "refs"></div>
+\endgroup

@@ -8,7 +8,7 @@ output: html_document
 ```{r libraries and config, warning=FALSE, include=FALSE}
 source(here::here("code/00_config/lena-pred-libraries.R"))
 source(here("code/00_config/lena-pred-config.R"))
-d <- read_lena_pred_data("lena-pred-lstm-preds", config_obj, "rds")
+d <- read_lena_pred_data("lena-pred-lstm-preds", config_obj, "rds", is_pitch = FALSE)
 d_persist <- read_lena_pred_data("lena-pred-persist-results", config_obj, "csv")
 
 if (config_obj$exp_config$dataset_name == "IDSLabel") {
