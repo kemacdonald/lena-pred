@@ -41,12 +41,16 @@ extract_preds <- function(d_obj, model_name) {
 # analyze one run of experiment
 # takes data frame with preds
 # returns average predictability of CDS vs. ADS with 95% bootstrapped CIs
-analyze_one_exp <- function(d = NULL, metric = NULL) { 
+analyze_one_exp <- function(d = NULL, metric = NULL, summary_stat = NULL) { 
   d %>% 
     group_by(seg_id, speaker_id, speech_register) %>% 
-    summarise(m_seg = mean(prob_mass), m_acc_seg = mean(correct_pred)) %>% 
+    summarise(m_seg = mean(prob_mass), 
+              med_seg = median(prob_mass),
+              m_acc_seg = mean(correct_pred)) %>% 
     group_by(speaker_id, speech_register) %>% 
-    summarise(m_prob = mean(m_seg), m_acc = mean(m_acc_seg)) %>% 
+    summarise(m_prob = mean(m_seg),
+              med_prob = median(med_seg),
+              m_acc = mean(m_acc_seg)) %>% 
     group_by(speech_register) %>% 
     tidyboot_mean(column = {{ metric }}) 
 }

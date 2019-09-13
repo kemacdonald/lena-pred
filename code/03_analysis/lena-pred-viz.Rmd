@@ -8,6 +8,7 @@ output: html_document
 ```{r libraries and config, warning=FALSE, include=FALSE}
 source(here::here("code/00_config/lena-pred-libraries.R"))
 source(here("code/00_config/lena-pred-config.R"))
+# TODO: fix extract_preds() function to handle new results format with folds
 d <- read_lena_pred_data("lena-pred-lstm-preds", config_obj, "rds", is_pitch = FALSE)
 d_persist <- read_lena_pred_data("lena-pred-persist-results", config_obj, "csv")
 
@@ -49,7 +50,7 @@ d_analysis <- d %>%
 d_results <- d_analysis %>% 
   group_by(exp_run_id) %>% 
   nest() %>% 
-  mutate(results = map(data, analyze_one_exp, metric = m_prob))
+  mutate(results = map(data, analyze_one_exp, metric = m_acc))
 ```
 
 Now make the key plots:
@@ -68,30 +69,29 @@ d_results %>%
 ```
 
 ```{r}
-ss <- d_analysis %>% 
-  filter(exp_run_id == "1") %>% 
-  group_by(seg_id, speaker_id, speech_register) %>% 
-  summarise(m_seg = mean(prob_mass), m_acc_seg = mean(correct_pred)) %>% 
-  group_by(speaker_id, speech_register) %>% 
-  summarise(m_prob = mean(m_seg), m_acc = mean(m_acc_seg))
-```
-
-```{r}
-delta_val <- 0.9
-ss_model <- d_analysis %>% 
+ss_segment <- d_analysis %>% 
   filter(exp_run_id == "1") %>% 
   group_by(seg_id, speaker_id, speech_register) %>% 
   summarise(m_seg = mean(prob_mass), m_acc_seg = mean(correct_pred))
 
-m_prob_priors <- get_prior(m_seg ~ speech_register + (1 + speech_register|speaker_id), 
-                         data = ss_model, 
+ss <- ss_segment %>% 
+  group_by(speaker_id, speech_register) %>% 
+  summarise(m_prob = median(m_seg), m_acc = mean(m_acc_seg))
+```
+
+```{r}
+delta_val <- 0.9
+
+m_prob_priors <- get_prior(m_seg ~ speech_register + (1 + speech_register | speaker_id), 
+                         data = ss_segment, 
                          family = "beta")
 
-m_prob_fit <- brm(m_seg ~ speech_register + (1 + speech_register|speaker_id), 
-                 data = ss_model, 
+m_prob_fit <- brm(m_seg ~ speech_register + (1 + speech_register | speaker_id), 
+                 data = ss_segment, 
                  family = "beta",
                  prior = m_prob_priors,
-                 control = list(adapt_delta = delta_val))
+                 control = list(adapt_delta = delta_val), 
+                 cores = 4)
 
 post <- posterior_samples(m_prob_fit)
   
@@ -105,7 +105,6 @@ m_summary <- post %>%
     group_by(type) %>% 
     median_hdi(.width = 0.9)
 ```
-
 
 ```{r eval=FALSE, include=FALSE}
 plot_model_output(mb_ms, col_name = m_prob, y_axis_lab = "Mean Prob. Mass")

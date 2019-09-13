@@ -1,6 +1,39 @@
 
 # LSTM training helpers ---------------------------------------------------
 
+run_k_fold <- function(d, k = 10, dnn_config) {
+  # extraact info needed to specify features of test dataset
+  all_seg_ids <- d %>% distinct(seg_id, speech_register, speaker_id)
+  n_test <- as.integer(nrow(all_seg_ids) * (1 - dnn_config$prop_train))
+  n_per_register_test <- n_test / 2
+  n_speakers <- d %>% distinct(speaker_id) %>% nrow()
+  n_per_speaker_test <- as.integer(n_per_register_test / n_speakers)
+  segs_per_speaker <- all_seg_ids %>% count(speaker_id, speech_register)
+  speaker_blacklist <- segs_per_speaker %>% filter(n < n_per_speaker_test) %>% pull(speaker_id)
+  
+  1:k %>% map(create_fold, 
+              d = d,
+              seg_info = all_seg_ids, 
+              blacklist = speaker_blacklist, 
+              size_per_speaker = n_per_speaker_test)
+}
+
+create_fold <- function(fold, d, seg_info, blacklist, size_per_speaker) {
+  test_seg_ids <- seg_info %>% 
+    filter( !(speaker_id %in% blacklist) ) %>% 
+    group_by(speech_register, speaker_id) %>% 
+    sample_n(size = size_per_speaker, replace = FALSE) %>% 
+    ungroup() %>%
+    select(speaker_id, seg_id) %>%
+    mutate(sample_id = 1:n(),
+           fold_id = fold)
+  
+  d %>%
+    filter(seg_id %in% test_seg_ids$seg_id) %>%
+    select(speaker_id, seg_id, speech_register, time_bin_id, duration_ms) %>%
+    left_join(., test_seg_ids, by = c("seg_id", "speaker_id"))
+}
+
 create_lstm <- function(d, lstm_config) {
   # extract some model params for tensor shaping
   n_shapes <- d$n_qshapes

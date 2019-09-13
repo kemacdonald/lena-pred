@@ -8,7 +8,7 @@ build_lstm_datasets <- function(d, d_name, prop_cds_train_list, dnn_config, test
   d_out <- prop_cds_train_list %>%
     furrr::future_map(.f = build_one_lstm_dataset,
       d = d,
-      d_test = test_data,
+      test_data = test_data,
       dnn_config = dnn_config)
 
   flatten(d_out)
@@ -20,21 +20,21 @@ build_lstm_datasets <- function(d, d_name, prop_cds_train_list, dnn_config, test
 # a different number of q-shapes
 # returns a list of relevant objects: vectorized data for lstm, some tests of sampling functions
 
-build_one_lstm_dataset <- function(d, prop_cds_train, d_test, dnn_config) {
+build_one_lstm_dataset <- function(d, prop_cds_train, test_data, dnn_config) {
   # Sample a pool of training segments from one of the datasets and return data frame
   d_train <- get_train_data(d, 
-                            test_seg_list = unique(d_test$seg_id),
+                            test_seg_list = unique(test_data$seg_id),
                             prop_cds = prop_cds_train)
   
   # Create some test objects so we can check that the sampling function works properly
   dur_cds_ads <- check_prop_cds_train(d_train)
-  prop_cds_test <- check_prop_cds_test(d_test)
+  prop_cds_test <- check_prop_cds_test(test_data)
 
   # Pass those train/test samples to the dataset generator function
   # to create an lstm-ready dataset
   d_out <- generate_lstm_data(d,
                               d_train = d_train,
-                              d_test = d_test,
+                              test_data = test_data,
                               max_seq_len = dnn_config$seq_max_len,
                               skip = dnn_config$skip_val)
 
@@ -53,7 +53,7 @@ build_one_lstm_dataset <- function(d, prop_cds_train, d_test, dnn_config) {
 # Generate LSTM-ready Dataset --------------------------------------------------
 # converts a dataframe with cluster sequences to a list of vectorized train/test
 # sequences ready to be fed to the LSTM
-generate_lstm_data <- function(d, d_train, d_test, max_seq_len, skip) {
+generate_lstm_data <- function(d, d_train, test_data, max_seq_len, skip) {
   # extract the cluster sequence as character string
   cluster_sequence <- d %>% pull(cluster)
   
@@ -65,11 +65,11 @@ generate_lstm_data <- function(d, d_train, d_test, max_seq_len, skip) {
   
   # get the training and test cluster sequences 
   d_train <- d_train %>% left_join(d, by = c("seg_id", "time_bin_id", "speech_register", "duration_ms"))
-  d_test <- d_test %>% left_join(d, by = c("seg_id", "time_bin_id", "speech_register", "duration_ms"))
+  test_data <- test_data %>% left_join(d, by = c("seg_id", "time_bin_id", "speech_register", "duration_ms", "speaker_id"))
   
   # create the sub-sequences based on max_seq_len and skip parameters
   d_out <- list(train_data = make_lstm_sub_sequences(d_train, max_seq_len, skip),
-                test_data = make_lstm_sub_sequences(d_test, max_seq_len, skip))
+                test_data = make_lstm_sub_sequences(test_data, max_seq_len, skip))
   
   # add one_hot encoding for next cluster (y) in training and test datasets
   d_out$train_data$next_cluster_one_hot <- one_hot_encode(d_out$train_data$next_cluster, cluster_dict)
@@ -93,7 +93,6 @@ generate_lstm_data <- function(d, d_train, d_test, max_seq_len, skip) {
 # we also store some metadata about the utterance: id, time_bin_id (position in utt), 
 # and speech register
 make_lstm_sub_sequences <- function(d_input, max_seq_len, skip) {
-  
   data_seq <- seq(1, length(d_input$cluster) - max_seq_len - 1, by = skip)
   
   data_seq %>%

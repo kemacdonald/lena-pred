@@ -1,7 +1,7 @@
 # Pitch Config File -------------------------------------------------------
 set.seed(12345)
-datasets <- c( "pilot", "ManyBabies", "IDSLabel")
-dataset_name <- datasets[2]
+datasets <- list(pilot = "pilot", mb = "ManyBabies", lena = "IDSLabel")
+dataset_name <- datasets[['lena']]
 prop_cds_vals <-  c(0, 0.25, 0.5, 0.75, 1)
 n_qshapes_vals <- c(6, 12, 24)    
 
@@ -72,17 +72,17 @@ config_obj <- list(
                       lstm_sum_path = paste0("data/03_summaries/", dataset_name, "/02_lstm-data/")),
   
   lstm_config = list(
-    lstm_units = 30,
+    lstm_units = 128,
     lstm_output_dim = 30,
-    n_epochs = 20, # should be 25
+    n_epochs = 1, # was 25
     include_early_stop = FALSE, # set to FALSE if we want the same number of training epochs across "conditions"
     early_stop = callback_early_stopping(monitor = "val_loss", 
                                          min_delta = 0.0001, patience = 3, 
                                          verbose = 0, mode = "auto"),
-    batch_size = 100, # should be 10
-    validation_split = 0.2, # ask Okko about validation split
+    batch_size = 100, # was 10
+    validation_split = 0, # ask Okko about validation split
     dropout = 0,
-    lr = .001,
+    lr = .01,
     shuffle = TRUE,
     save_model = FALSE,
     n_clusters = n_qshapes_vals,
