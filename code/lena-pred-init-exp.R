@@ -2,10 +2,10 @@
 source("code/00_config/lena-pred-libraries.R")
 source("code/00_config/lena-pred-config.R")
 plan(multiprocess)
-# runs <- c("run1", "run2", "run3", "run4", "run5")
-# n_folds <- 10
-runs <- c("run1", "run2") # for debugging
-n_folds <- 2
+runs <- c("run1", "run2", "run3", "run4", "run5")
+n_folds <- 10
+# runs <- c("run1", "run2") # for debugging
+# n_folds <- 2
 
 # for each fold of test data, we now generate a dataset, train model, and generate predictions
 d_results <- vector(mode="list", length=length(1:length(runs)))

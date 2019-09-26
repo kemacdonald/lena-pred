@@ -2,8 +2,8 @@
 set.seed(12345)
 datasets <- list(pilot = "pilot", mb = "ManyBabies", lena = "IDSLabel")
 dataset_name <- datasets[['mb']]
-prop_cds_vals <-  c(0.5, 1) #c(0, 0.25, 0.5, 0.75, 1)
-n_qshapes_vals <- c(6, 12) #c(6, 12, 24)    
+prop_cds_vals <-  c(0, 0.25, 0.5, 0.75, 1)
+n_qshapes_vals <- c(6, 12, 24)    
 
 path_to_wav <- case_when(
   dataset_name == "pilot" ~ "data/02_processed_data/pilot-segments-norm",
