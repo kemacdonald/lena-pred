@@ -9,8 +9,13 @@ output: html_document
 source(here::here("code/00_config/lena-pred-libraries.R"))
 source(here("code/00_config/lena-pred-config.R"))
 
-d <- read_lena_pred_data("lena-pred-lstm-preds", config_obj, "rds", is_pitch = FALSE)
-d_persist <- read_lena_pred_data("lena-pred-persist-results", config_obj, "csv")
+d <- read_lena_pred_data("lena-pred-lstm-preds", 
+                         config_obj, 
+                         f_type = "rds", 
+                         is_pitch = FALSE)
+
+d_persist <- read_lena_pred_data("lena-pred-persist-results", config_obj, 
+                                 f_type = "csv")
 
 if (config_obj$exp_config$dataset_name == "IDSLabel") {
   d <- d %>% 
@@ -70,7 +75,7 @@ d_results %>%
   geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
                   position = position_dodge(width = 0.1),
                   size = 0.8) +
-  ylim(0, 0.6) +
+  ylim(0, NA) +
   labs(x = "Experiment Run ID", y = "Mean Prob.", color = "Speech Register") +
   scale_color_ptol() 
 ```
@@ -228,8 +233,8 @@ ms %>%
   geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
                   position = position_dodge(0.1),
                   size = 0.8) +
-  ylim(0, 0.5) +
-  guides(color = "none") +
+  ylim(0, NA) +
+  #guides(color = "none") +
   labs(x = "Utterance Length", y = "Mean Prob.", color = "Speech Register") +
   scale_color_ptol() +
   facet_wrap(~exp_run_id)
@@ -266,9 +271,12 @@ Plot the distribution of success and errors with the cluster shapes
 
 ```{r, fig.width=8, out.width="95%"}
 d_kmeans <- read_rds(here(paste0(config_obj$paths_config$pitch_sum_path, 
-                                 "lena-pred-kmeans-outputs-", 
-                                 config_obj$exp_config$dataset_name, ".rds")))
-shape_val <- "shapes_12-run1"
+                                 "lena-pred-clustering-outputs-", 
+                                 config_obj$exp_config$dataset_name, 
+                                  "-",
+                                 config_obj$kmeans_config$scale_coefs, 
+                                 ".rds")))
+shape_val <- "shapes_6-run2"
 d_shapes <- d_kmeans[[shape_val]]
 cluster_shapes <- plot_cluster_shapes(d_shapes$centers, scaled = TRUE)
 

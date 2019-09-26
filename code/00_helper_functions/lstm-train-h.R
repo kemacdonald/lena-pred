@@ -2,7 +2,7 @@
 # LSTM training helpers ---------------------------------------------------
 
 run_k_fold <- function(d, k = 10, dnn_config) {
-  # extraact info needed to specify features of test dataset
+  # extract info needed to specify features of test dataset
   all_seg_ids <- d %>% distinct(seg_id, speech_register, speaker_id)
   n_test <- as.integer(nrow(all_seg_ids) * (1 - dnn_config$prop_train))
   n_per_register_test <- n_test / 2

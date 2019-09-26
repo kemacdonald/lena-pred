@@ -1,9 +1,31 @@
-run_experiment <- function(run_id, config_object, k = 10, generate_clusters = FALSE) {
+run_experiment <- function(run_id, 
+                           config_object, 
+                           k = 10, 
+                           run_pitch_to_coefs = FALSE,
+                           run_coefs_to_clusters = FALSE) {
+ 
+   print(paste("Initiating experiment", run_id, "with", k, "folds"))
   
-  if (generate_clusters) {
-    # build sequence of cluters data set
-    d_clusters <- generate_cluster_dataset(run_id, config_object)
+  if (run_pitch_to_coefs) {
+    print("Generating new poly coefs from pitch contours")
+    d_by_bin <- pitch_to_coefs(run_id, config_object)
   } else {
+    print("Loading stored poly coefs")
+    d_by_bin <- read_rds(here(paste0(config_object$paths_config$pitch_sum_path, 
+                                     "lena-pred-nested-pitch-vals-", 
+                                     config_object$exp_config$dataset_name, 
+                                     "-",
+                                     config_object$kmeans_config$scale_coefs,
+                                     ".rds"))) 
+  }
+  
+  # only generate a new clusters dataset if the user asks 
+  # and it's the first run of the exp
+  if (run_coefs_to_clusters) {
+    print("Generating new cluster dataset from poly coefs")
+    d_clusters <- generate_cluster_dataset(d_by_bin, run_id, config_object)
+  } else {
+    print("Loading stored cluster dataset")
     d_clusters <- read_rds(path = here(paste0(config_object$paths_config$pitch_sum_path, 
                                               "lena-pred-clustering-outputs-", 
                                               config_object$exp_config$dataset_name, 
@@ -25,12 +47,15 @@ run_experiment <- function(run_id, config_object, k = 10, generate_clusters = FA
   
   for (test_data in k_fold_test_sets) {
     fold_id <- paste0("fold", as.character(counter))
+    print(paste("Running:", fold_id))
+    
     # generate a dnn-ready dataset (vectorize subsequences)
     d_dnn <- generate_dnn_dataset(d_clusters, 
                                   config_object, 
                                   run_id, 
                                   test_data = test_data, 
-                                  fold = test_data$fold_id[1])
+                                  fold = test_data$fold_id[1],
+                                  n_folds = k)
     
     # train dnn and generate predictions on test data, adding results to list
     # we name the result after the fold id
@@ -45,9 +70,7 @@ run_experiment <- function(run_id, config_object, k = 10, generate_clusters = FA
   d_results
 }
 
-## note that saving functions will create output with each run of the experiment
-## so we store only the intermediate outputs of the final run of the experiment 
-generate_cluster_dataset <- function(run_id, config_object) {
+pitch_to_coefs <- function(run_id, config_object) {
   # Read raw pitch values ---------------------------------------------------
   d <- read_rds(here(config_object$paths_config$pitch_sum_path, 
                      paste0("lena-pred-pitch-vals-pre-interp-", 
@@ -104,6 +127,11 @@ generate_cluster_dataset <- function(run_id, config_object) {
              time_bin_id, duration_ms, speaker_id, exp_run_id) %>%
     nest() 
   
+  # Fit polynomial
+  d_by_bin <- d_by_bin %>%
+    mutate(poly_coefs = map(data, fit_poly, config_object$poly_fit_config$degree_poly)) %>%
+    mutate(poly_preds = map(poly_coefs, predict_poly))
+  
   # Save nested output
   write_rds(d_by_bin, 
             here(paste0(config_object$paths_config$pitch_sum_path, 
@@ -113,18 +141,23 @@ generate_cluster_dataset <- function(run_id, config_object) {
                         config_object$kmeans_config$scale_coefs,
                         ".rds")), compress = "gz")
   
-  # Fit polynomial
-  d_by_bin <- d_by_bin %>%
-    mutate(poly_coefs = future_map(data, fit_poly, config_object$poly_fit_config$degree_poly,
-                                   .progress = TRUE)) %>%
-    mutate(poly_preds = future_map(poly_coefs, predict_poly, 
-                                   .progress = TRUE))
+  print(paste0("Completed fitting polynomial to each time bin for: ", run_id))
+  
+  d_by_bin
+}
+
+## note that saving functions will create output with each run of the experiment
+## so we store only the intermediate outputs of the final run of the experiment 
+generate_cluster_dataset <- function(d_by_bin, run_id, config_object) {
   
   # Kmeans clustering of poly coefs -----------------------------------------
-  d_coefs <- unnest(d_by_bin, poly_coefs, .drop = T)
-  d_final <- map_get_clusters(config_object$poly_fit_config$n_q_shapes,
+  d_coefs <- unnest(d_by_bin, poly_coefs) %>% 
+    ungroup() %>% 
+    select(-data, -poly_preds)
+  
+  d_final <- map_get_clusters(d = d_coefs, 
+                              k_list = config_object$poly_fit_config$n_q_shapes,
                               run_id = run_id,
-                              d = d_coefs, 
                               iter_max = config_object$kmeans_config$iter_max, 
                               scale_coefs = config_object$kmeans_config$scale_coefs) 
   
@@ -147,12 +180,12 @@ generate_cluster_dataset <- function(run_id, config_object) {
                         ".rds")), compress = "gz")
   
   
-  print(paste0("Completed clustering for: ", run_id))
+  print(paste("Completed clustering for:", run_id))
   
   d_final
 }
 
-generate_dnn_dataset <- function(d_clusters, config_object, run_id, test_data_gen, fold) {
+generate_dnn_dataset <- function(d_clusters, config_object, run_id, test_data_gen, fold, n_folds) {
   d_list_clusters <- d_clusters %>% map(~ .x$d_clusters)
   
   d_lstm <- map(d_list_clusters,
@@ -162,20 +195,20 @@ generate_dnn_dataset <- function(d_clusters, config_object, run_id, test_data_ge
                 dnn_config = config_object$dnn_dataset_config,  
                 test_data = test_data_gen)
   
-  # KM: removed save step when adding k-fold validation because there will be k versions of 
-  # the lstm input dataset, so saving intermediate output doesn't make sense anymore 
+
+   # Save final lstm dataset
+  if (fold == n_folds) {
+    write_rds(d_lstm,
+              here(config_obj$paths_config$lstm_sum_path,
+                   paste0("lena-pred-lstm-train-test-",
+                          config_object$exp_config$dataset_name,
+                          "-",
+                          config_object$kmeans_config$scale_coefs,
+                          ".rds")),
+              compress = "gz")
+  }
   
-  # # Save final lstm dataset
-  # write_rds(d_lstm, 
-  #           here(config_obj$paths_config$lstm_sum_path, 
-  #                paste0("lena-pred-lstm-train-test-",
-  #                       config_object$exp_config$dataset_name, 
-  #                       "-",
-  #                       config_object$kmeans_config$scale_coefs,
-  #                       ".rds")), 
-  #           compress = "gz")
-  
-  print(paste0("Completed DNN dataset generation for ", run_id, ", fold", fold))
+  print(paste("Completed DNN dataset generation for", run_id, ", fold", fold))
   
   d_lstm
 }

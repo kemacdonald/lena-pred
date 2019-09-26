@@ -15,7 +15,7 @@ read_lena_pred_data <- function(file_prefix = NULL, config_object = NULL, f_type
     } else {
       d <- read_rds(here(config_object$paths_config$lstm_sum_path, 
                          paste0(file_name,  ".rds"))) %>% 
-        future_map_dfr(.f = process_exp_run)
+        future_map2_dfr(.f = process_exp_run, .y = names(.))
       
       d$speech_register <- factor(d$speech_register) %>% fct_rev() # reverses order of factor labels for plotting
       d  
@@ -29,24 +29,25 @@ read_lena_pred_data <- function(file_prefix = NULL, config_object = NULL, f_type
 
 # extract tidy preds data frame from results object keeping track
 # of run id and fold id
-extract_preds <- function(d_obj, model_name, fold_id) {
+extract_preds <- function(d_obj, model_name, fold_id, run_id) {
   p_cs <- get_prop_cds(model_name)
   nq <- get_nqshapes(model_name)
   
   pluck(d_obj, "result", "d_preds") %>%
     mutate(prop_cds_train = p_cs,
            n_qshapes = nq,
-           fold_id = fold_id)
+           fold_id = fold_id,
+           exp_run_id = run_id)
 }
 
-process_folds <- function(fold_obj, fold_id) {
+process_folds <- function(fold_obj, fold_id, run_id) {
   fold_obj %>% 
-    map2_df(.y = names(.), .f = extract_preds, fold_id)
+    map2_df(.y = names(.), .f = extract_preds, fold_id, run_id)
 }
 
-process_exp_run <- function(run_obj) {
+process_exp_run <- function(run_obj, run_id) {
   run_obj %>% 
-    map2_df(.y = names(.), .f = process_folds)
+    map2_df(.f = process_folds, .y = names(.), run_id)
 }
 
 # analyze one run of experiment

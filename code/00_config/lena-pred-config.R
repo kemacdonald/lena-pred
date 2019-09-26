@@ -1,9 +1,9 @@
 # Pitch Config File -------------------------------------------------------
 set.seed(12345)
 datasets <- list(pilot = "pilot", mb = "ManyBabies", lena = "IDSLabel")
-dataset_name <- datasets[['lena']]
-prop_cds_vals <-  c(0, 0.25, 0.5, 0.75, 1)
-n_qshapes_vals <- c(6, 12, 24)    
+dataset_name <- datasets[['mb']]
+prop_cds_vals <-  c(0.5, 1) #c(0, 0.25, 0.5, 0.75, 1)
+n_qshapes_vals <- c(6, 12) #c(6, 12, 24)    
 
 path_to_wav <- case_when(
   dataset_name == "pilot" ~ "data/02_processed_data/pilot-segments-norm",
@@ -72,7 +72,7 @@ config_obj <- list(
                       lstm_sum_path = paste0("data/03_summaries/", dataset_name, "/02_lstm-data/")),
   
   lstm_config = list(
-    lstm_units = 128,
+    lstm_units = 30,
     lstm_output_dim = 30,
     n_epochs = 1, # was 25
     include_early_stop = FALSE, # set to FALSE if we want the same number of training epochs across "conditions"
