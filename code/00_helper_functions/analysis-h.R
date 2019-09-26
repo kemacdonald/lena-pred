@@ -15,8 +15,7 @@ read_lena_pred_data <- function(file_prefix = NULL, config_object = NULL, f_type
     } else {
       d <- read_rds(here(config_object$paths_config$lstm_sum_path, 
                          paste0(file_name,  ".rds"))) %>% 
-        flatten() %>% 
-        map2_df(.y = names(.), .f = extract_preds)
+        future_map_dfr(.f = process_exp_run)
       
       d$speech_register <- factor(d$speech_register) %>% fct_rev() # reverses order of factor labels for plotting
       d  
@@ -28,20 +27,32 @@ read_lena_pred_data <- function(file_prefix = NULL, config_object = NULL, f_type
   }
 }
 
-# extract tidy preds data frame from results object
-extract_preds <- function(d_obj, model_name) {
+# extract tidy preds data frame from results object keeping track
+# of run id and fold id
+extract_preds <- function(d_obj, model_name, fold_id) {
   p_cs <- get_prop_cds(model_name)
   nq <- get_nqshapes(model_name)
   
-  pluck(d_obj, "result", "d_preds") %>% 
+  pluck(d_obj, "result", "d_preds") %>%
     mutate(prop_cds_train = p_cs,
-           n_qshapes = nq)
+           n_qshapes = nq,
+           fold_id = fold_id)
+}
+
+process_folds <- function(fold_obj, fold_id) {
+  fold_obj %>% 
+    map2_df(.y = names(.), .f = extract_preds, fold_id)
+}
+
+process_exp_run <- function(run_obj) {
+  run_obj %>% 
+    map2_df(.y = names(.), .f = process_folds)
 }
 
 # analyze one run of experiment
 # takes data frame with preds
 # returns average predictability of CDS vs. ADS with 95% bootstrapped CIs
-analyze_one_exp <- function(d = NULL, metric = NULL, summary_stat = NULL) { 
+analyze_one_run <- function(d = NULL, metric = NULL, summary_stat = NULL) { 
   d %>% 
     group_by(seg_id, speaker_id, speech_register) %>% 
     summarise(m_seg = mean(prob_mass), 

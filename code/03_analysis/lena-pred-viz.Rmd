@@ -8,7 +8,7 @@ output: html_document
 ```{r libraries and config, warning=FALSE, include=FALSE}
 source(here::here("code/00_config/lena-pred-libraries.R"))
 source(here("code/00_config/lena-pred-config.R"))
-# TODO: fix extract_preds() function to handle new results format with folds
+
 d <- read_lena_pred_data("lena-pred-lstm-preds", config_obj, "rds", is_pitch = FALSE)
 d_persist <- read_lena_pred_data("lena-pred-persist-results", config_obj, "csv")
 
@@ -47,19 +47,26 @@ d_analysis <- d %>%
          duration_sec = duration_ms / 1000,
          time_bin_id_num = as.numeric(time_bin_id)) 
 
-d_results <- d_analysis %>% 
-  group_by(exp_run_id) %>% 
-  nest() %>% 
-  mutate(results = map(data, analyze_one_exp, metric = m_acc))
+ d_nest <- d_analysis %>% 
+   group_by(fold_id, exp_run_id) %>% 
+   nest() %>% 
+   mutate(results = map(data, analyze_one_run, 
+                        metric = m_acc))
+ 
+ # aggregate across runds
+ d_results <- d_nest %>% 
+   unnest(results) %>%
+   group_by(speech_register, exp_run_id) %>% 
+   summarise(m = mean(empirical_stat), 
+             ci_lower = mean(ci_lower),
+             ci_upper = mean(ci_upper))
 ```
 
 Now make the key plots:
 
 ```{r}
 d_results %>% 
-  select(exp_run_id, results) %>% 
-  unnest() %>% 
-  ggplot(aes(x = exp_run_id, y = empirical_stat, color = speech_register)) +
+  ggplot(aes(x = exp_run_id, y = m, color = speech_register)) +
   geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
                   position = position_dodge(width = 0.1),
                   size = 0.8) +
@@ -145,7 +152,7 @@ n_bins <- 10
 
 d_within_utt <- d_analysis %>% 
   filter(!(seg_id %in% too_short_list)) %>% 
-  group_by(seg_id, exp_run_id) %>% 
+  group_by(seg_id) %>% 
   mutate(time_bin_within_utt = cut_interval(time_bin_id_num, n_bins, labels = F))
 
 ss_within_utt <- d_within_utt %>% 
@@ -205,6 +212,8 @@ ms_within_utt %>%
   facet_grid(fct_rev(utt_length_type) ~ exp_run_id)
 ```
 
+Same plot but collapse across relative position in utterance
+
 ```{r}
 ms <- d_within_utt %>% 
   group_by(speaker_id, seg_id, speech_register, utt_length_type, exp_run_id) %>% 
@@ -219,7 +228,7 @@ ms %>%
   geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
                   position = position_dodge(0.1),
                   size = 0.8) +
-  ylim(0, 0.4) +
+  ylim(0, 0.5) +
   guides(color = "none") +
   labs(x = "Utterance Length", y = "Mean Prob.", color = "Speech Register") +
   scale_color_ptol() +
@@ -289,7 +298,6 @@ plot_grid(cluster_shapes, target_dist_plot, errors_plot,
           scale = c(1, 0.8, 0.8))
 ```
 
-
 ## IDSLabel-specific Analyses
 
 Join participant metadata
@@ -347,7 +355,6 @@ ss %>%
   geom_point(size = 4, alpha = 0.5) +
   lims(x = c(-0.3, 0.3)) +
   theme(axis.text.x = element_text(angle = 90)) +
-  coord_flip() +
   geom_vline(xintercept = 0, lty = "dashed") +
   labs(x = "Predictability Difference \n (Larger value means ADS more predictable)", y = "Child ID")
 ```
