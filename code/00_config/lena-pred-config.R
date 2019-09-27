@@ -74,7 +74,7 @@ config_obj <- list(
   lstm_config = list(
     lstm_units = 30,
     lstm_output_dim = 30,
-    n_epochs = 1, # was 25
+    n_epochs = 10, # was 25
     include_early_stop = FALSE, # set to FALSE if we want the same number of training epochs across "conditions"
     early_stop = callback_early_stopping(monitor = "val_loss", 
                                          min_delta = 0.0001, patience = 3, 
