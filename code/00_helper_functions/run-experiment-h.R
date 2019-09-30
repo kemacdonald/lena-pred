@@ -19,8 +19,7 @@ run_experiment <- function(run_id,
                                      ".rds"))) 
   }
   
-  # only generate a new clusters dataset if the user asks 
-  # and it's the first run of the exp
+  # only generate a new clusters dataset if the user wants to
   if (run_coefs_to_clusters) {
     print("Generating new cluster dataset from poly coefs")
     d_clusters <- generate_cluster_dataset(d_by_bin, run_id, config_object)
@@ -66,7 +65,18 @@ run_experiment <- function(run_id,
     counter <- counter + 1
   }
   
-  print(paste("Completed:", run_id))
+  # save runs separately
+  # write the results to disk
+  write_rds(d_results,
+            here(config_obj$paths_config$lstm_preds_path, 
+                 paste0("lena-pred-lstm-preds-",
+                        config_obj$exp_config$dataset_name, "-",
+                        config_obj$kmeans_config$scale_coefs, "-",
+                        run_id,
+                        ".rds")),
+            compress = "gz")
+  
+  print(paste("Completed and saved result for experimental:", run_id))
   d_results
 }
 

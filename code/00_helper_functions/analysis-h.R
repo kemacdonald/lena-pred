@@ -1,29 +1,21 @@
 ## Analysis helpers ---------------------------------------------------
 
 # read data files for analysis
-read_lena_pred_data <- function(file_prefix = NULL, config_object = NULL, f_type = NULL, is_pitch = NULL) {
-  
-  file_name <- paste(file_prefix, 
-                     config_object$exp_config$dataset_name,
-                     config_object$kmeans_config$scale_coefs,
-                     sep = "-")
+read_lena_pred_data <- function(file_name, 
+                                config_object = NULL, 
+                                f_type = NULL, 
+                                is_pitch = NULL) {
   
   if (f_type == "rds") {
     
     if (is_pitch) {
       read_rds(here(config_obj$paths_config$pitch_sum_path, paste0(file_name, ".rds")))
     } else {
-      d <- read_rds(here(config_object$paths_config$lstm_sum_path, 
-                         paste0(file_name,  ".rds"))) %>% 
-        future_map2_dfr(.f = process_exp_run, .y = names(.))
-      
-      d$speech_register <- factor(d$speech_register) %>% fct_rev() # reverses order of factor labels for plotting
-      d  
+      read_rds(here(config_obj$paths_config$lstm_preds_path, file_name)) 
     }
     
-    
   } else if (f_type == "csv") {
-    read_csv(here(config_object$paths_config$lstm_sum_path, paste0(file_name,  ".csv")))
+    read_csv(here(config_object$paths_config$lstm_sum_path, file_name))
   }
 }
 
@@ -41,13 +33,11 @@ extract_preds <- function(d_obj, model_name, fold_id, run_id) {
 }
 
 process_folds <- function(fold_obj, fold_id, run_id) {
-  fold_obj %>% 
-    map2_df(.y = names(.), .f = extract_preds, fold_id, run_id)
+  fold_obj %>% map2_df(.y = names(.), .f = extract_preds, fold_id, run_id)
 }
 
 process_exp_run <- function(run_obj, run_id) {
-  run_obj %>% 
-    map2_df(.f = process_folds, .y = names(.), run_id)
+  run_obj %>% map2_df(.f = process_folds, .y = names(.), run_id)
 }
 
 # analyze one run of experiment

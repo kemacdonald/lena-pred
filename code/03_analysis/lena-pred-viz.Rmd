@@ -9,17 +9,25 @@ output: html_document
 source(here::here("code/00_config/lena-pred-libraries.R"))
 source(here("code/00_config/lena-pred-config.R"))
 
-d <- read_lena_pred_data("lena-pred-lstm-preds", 
-                         config_obj, 
-                         f_type = "rds", 
-                         is_pitch = FALSE)
+# lstm  results
+preds_files <- list.files(config_obj$paths_config$lstm_preds_path)
 
-d_persist <- read_lena_pred_data("lena-pred-persist-results", config_obj, 
-                                 f_type = "csv")
+d <- preds_files %>% 
+  map(read_lena_pred_data,
+      config_obj, 
+      f_type = "rds", 
+      is_pitch = FALSE) %>% 
+  setNames(config_obj$exp_config$runs) 
+
+d <- d %>% future_map2_dfr(.f = process_exp_run, .y = names(.))
+d$speech_register <- factor(d$speech_register) %>% fct_rev()
+
+# persistence model results
+persist_file <- list.files(config_obj$paths_config$lstm_sum_path, pattern = '*persist=*')
+d_persist <- read_lena_pred_data(persist_file, config_obj, f_type = "csv")
 
 if (config_obj$exp_config$dataset_name == "IDSLabel") {
-  d <- d %>% 
-    mutate(speaker_id = str_split(seg_id, "_", simplify = TRUE)[1])  
+  d <- d %>% mutate(speaker_id = str_split(seg_id, "_", simplify = TRUE)[1])  
 }
 ```
 
@@ -58,7 +66,7 @@ d_analysis <- d %>%
    mutate(results = map(data, analyze_one_run, 
                         metric = m_acc))
  
- # aggregate across runds
+ # aggregate across runs
  d_results <- d_nest %>% 
    unnest(results) %>%
    group_by(speech_register, exp_run_id) %>% 
@@ -276,7 +284,7 @@ d_kmeans <- read_rds(here(paste0(config_obj$paths_config$pitch_sum_path,
                                   "-",
                                  config_obj$kmeans_config$scale_coefs, 
                                  ".rds")))
-shape_val <- "shapes_6-run2"
+shape_val <- "shapes_12-run2"
 d_shapes <- d_kmeans[[shape_val]]
 cluster_shapes <- plot_cluster_shapes(d_shapes$centers, scaled = TRUE)
 

@@ -2,8 +2,23 @@
 set.seed(12345)
 datasets <- list(pilot = "pilot", mb = "ManyBabies", lena = "IDSLabel")
 dataset_name <- datasets[['mb']]
-prop_cds_vals <-  c(0, 0.25, 0.5, 0.75, 1)
-n_qshapes_vals <- c(6, 12, 24)    
+debug_exp <- FALSE
+
+if (debug_exp) {
+  runs <- c("run1", "run2") 
+  n_folds <- 2
+  prop_cds_vals <-  c(0.5, 1)
+  n_qshapes_vals <- c(12)   
+  n_epochs <- 1
+  batch_size <- 100
+} else {
+  runs <- c("run1", "run2", "run3", "run4", "run5")
+  n_folds <- 10
+  prop_cds_vals <-  c(0, 0.25, 0.5, 0.75, 1)
+  n_qshapes_vals <- c(6, 12, 24)   
+  n_epochs <- 15
+  batch_size <- 100
+}
 
 path_to_wav <- case_when(
   dataset_name == "pilot" ~ "data/02_processed_data/pilot-segments-norm",
@@ -20,7 +35,9 @@ config_obj <- list(
   exp_config = list(
     dataset_name = dataset_name,
     prop_cds_vals = prop_cds_vals,
-    n_qshapes_vals = n_qshapes_vals
+    n_qshapes_vals = n_qshapes_vals,
+    n_folds = n_folds,
+    runs = runs
   ),
   
   dnn_dataset_config = list(
@@ -69,18 +86,19 @@ config_obj <- list(
                       path_to_wav = path_to_wav, 
                       files_to_analyze = files_to_analyze,
                       pitch_sum_path = paste0("data/03_summaries/", dataset_name, "/01_pitch-data/"),
-                      lstm_sum_path = paste0("data/03_summaries/", dataset_name, "/02_lstm-data/")),
+                      lstm_sum_path = paste0("data/03_summaries/", dataset_name, "/02_lstm-data/"),
+                      lstm_preds_path = paste0("data/03_summaries/", dataset_name, "/02_lstm-data/experimental_runs")),
   
   lstm_config = list(
     lstm_units = 30,
     lstm_output_dim = 30,
-    n_epochs = 10, # was 25
+    n_epochs = n_epochs,
     include_early_stop = FALSE, # set to FALSE if we want the same number of training epochs across "conditions"
     early_stop = callback_early_stopping(monitor = "val_loss", 
                                          min_delta = 0.0001, patience = 3, 
                                          verbose = 0, mode = "auto"),
-    batch_size = 100, # was 10
-    validation_split = 0, # ask Okko about validation split
+    batch_size = batch_size, 
+    validation_split = 0, # use all data for training
     dropout = 0,
     lr = .01,
     shuffle = TRUE,
