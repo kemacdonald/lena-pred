@@ -13,11 +13,11 @@ if (debug_exp) {
   batch_size <- 100
 } else {
   runs <- c("run1", "run2", "run3", "run4", "run5")
-  n_folds <- 10
+  n_folds <- 5
   prop_cds_vals <-  c(0, 0.25, 0.5, 0.75, 1)
   n_qshapes_vals <- c(6, 12, 24)   
   n_epochs <- 15
-  batch_size <- 100
+  batch_size <- 50
 }
 
 path_to_wav <- case_when(
