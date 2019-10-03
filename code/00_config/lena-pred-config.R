@@ -1,5 +1,5 @@
 # Pitch Config File -------------------------------------------------------
-set.seed(12345)
+set.seed(1234567)
 datasets <- list(pilot = "pilot", mb = "ManyBabies", lena = "IDSLabel")
 dataset_name <- datasets[['mb']]
 debug_exp <- FALSE
@@ -12,7 +12,7 @@ if (debug_exp) {
   n_epochs <- 1
   batch_size <- 100
 } else {
-  runs <- c("run1", "run2", "run3", "run4", "run5")
+  runs <- c("run5")
   n_folds <- 5
   prop_cds_vals <-  c(0, 0.25, 0.5, 0.75, 1)
   n_qshapes_vals <- c(6, 12, 24)   
