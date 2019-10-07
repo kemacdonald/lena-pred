@@ -34,16 +34,18 @@ if (config_obj$exp_config$dataset_name == "IDSLabel") {
 ## Baseline persistence model results. 
 
 ```{r}
-d_persist %>% 
-  ggplot(aes(x = as_factor(n_qshapes), y = acc, 
-             color = as_factor(prop_cds),
-             group = prop_cds)) +
-  geom_point(size = 2) +
-  geom_line(size = 1) +
-  scale_color_ptol() +
-  labs(x = "Num of Q-shapes", y = "Mean Accuracy", 
-       color = "Prop. CDS in Dataset",
-       title = "Persistence Model")
+ms_persist <- d_persist %>% 
+  filter(!(is.na(speaker_id)), 
+         prop_cds == 0.5) %>% 
+  group_by(speech_register, speaker_id, seg_id) %>% 
+  summarise(m = mean(m, na.rm = T)) %>% 
+  group_by(speaker_id, speech_register) %>% 
+  summarise(m = mean(m, na.rm = T)) %>% 
+  group_by(speech_register) %>% 
+  tidyboot_mean(col = m, na.rm = T) %>% 
+  mutate(model = "persistence") %>% 
+  rename(m = mean) %>% 
+  select(-n, -empirical_stat)
 ```
 
 ## ADS vs. CDS average predictability
@@ -65,17 +67,43 @@ d_analysis <- d %>%
    nest() %>% 
    mutate(results = map(data, analyze_one_run, 
                         metric = m_acc))
- 
+
  # aggregate across runs
- d_results <- d_nest %>% 
+ ms_lstm <- d_nest %>% 
    unnest(results) %>%
    group_by(speech_register, exp_run_id) %>% 
    summarise(m = mean(empirical_stat), 
              ci_lower = mean(ci_lower),
-             ci_upper = mean(ci_upper))
+             ci_upper = mean(ci_upper)) %>% 
+   group_by(speech_register) %>% 
+   summarise(m = mean(m), 
+             ci_lower = mean(ci_lower),
+             ci_upper = mean(ci_upper)) %>% 
+   mutate(model = "lstm")
 ```
 
-Now make the key plots:
+Plot comparing persistence to lstm and IDS to ADS
+
+```{r}
+ms <- bind_rows(ms_persist, ms_lstm)
+
+f0_pred_plot <- ms %>% 
+  ggplot(aes(x = fct_rev(speech_register), y = m, color = fct_rev(model))) +
+   geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                   position = position_dodge(width = 0.1)) + 
+  scale_color_ptol() +
+  lims(y = c(0, max(ms$ci_upper) + 0.05)) + 
+  labs(x = NULL, y = "Mean Posterior Prob.", color = "Model:") +
+  theme(legend.position = "top")
+
+fname <- paste0("writing/figs/", "overall_pred_plot-", config_obj$exp_config$dataset_name, ".png")
+
+save_plot(here(fname), f0_pred_plot, ncol = 1.2, nrow = 1.5)
+
+f0_pred_plot
+```
+
+Deprecated plotting code (for showing variations across experimental runs)
 
 ```{r}
 d_results %>% 
@@ -98,6 +126,8 @@ ss <- ss_segment %>%
   group_by(speaker_id, speech_register) %>% 
   summarise(m_prob = median(m_seg), m_acc = mean(m_acc_seg))
 ```
+
+### Get model vals to plot
 
 ```{r}
 delta_val <- 0.9
@@ -151,6 +181,27 @@ d_analysis %>%
   theme(legend.position = "top")
 ```
 
+Collapse across runs
+
+```{r}
+duration_plot <- d_analysis %>% 
+  filter(duration_sec <= 15) %>% 
+  group_by(seg_id, speech_register, speaker_id, duration_sec) %>% 
+  summarise(m_prob = mean(prob_mass)) %>% 
+  ggplot(aes(x = duration_sec, y = m_prob, color = speech_register)) +
+  geom_point(alpha = 0.25, size = 2) +
+  geom_smooth(method = "lm", size = 1.5) +
+  lims(y = c(0,1)) +
+  scale_color_ptol() +
+  labs(x = "Utterance Duration (sec)", y = "Mean Posterior Prob.",color = "Speech Register:") +
+  theme(legend.position = "top")
+
+fname <- paste0("writing/figs/", "duration_plot-", config_obj$exp_config$dataset_name, ".png")
+save_plot(here(fname), plot = duration_plot, ncol = 1.5, nrow = 2)
+
+duration_plot
+```
+
 ## Predictability as a function of within-utterance position
 
 ```{r}
@@ -191,61 +242,118 @@ ms_within_utt %>%
   facet_wrap(~ exp_run_id, nrow = 1)
 ```
 
+Collapse across runs
+
+```{r}
+ss_within_utt <- d_within_utt %>% 
+  group_by(seg_id, speaker_id, time_bin_within_utt, speech_register, exp_run_id) %>% 
+  summarise(m_seg_prob = mean(prob_mass),
+            m_acc_seg = mean(correct_pred)) %>% 
+  group_by(speaker_id, time_bin_within_utt, speech_register) %>% 
+  summarise(m_prob = mean(m_seg_prob), 
+            m_acc = mean(m_acc_seg)) 
+
+ms_within_utt <- ss_within_utt %>% 
+  group_by(time_bin_within_utt, speech_register) %>% 
+  tidyboot_mean(column = m_prob) 
+
+temporal_pred_plot <- ms_within_utt %>% 
+  ggplot(aes(x = as_factor(time_bin_within_utt), y = empirical_stat, 
+             color = speech_register, group = speech_register)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_jitter(0.03)) +
+  geom_label_repel(data = subset(ms_within_utt, time_bin_within_utt == max(time_bin_within_utt)),
+                   nudge_x = 1,
+                   aes(label = speech_register)) +
+  geom_line(size = 1) +
+  scale_color_ptol() +
+  guides(color = F) + 
+  lims(y = c(0, NA)) +
+  coord_cartesian(xlim = c(0, 11)) +
+  labs(x = "Relative position in Utterance", y = "Mean Posterior Prob.", 
+       color = "Speech Register") +
+  theme(legend.position = "top") 
+
+temporal_pred_plot
+```
+
 Split this plot by long vs. short utterances:
 
 ```{r}
-split_val <- 1000
+if(config_obj$exp_config$dataset_name == "ManyBabies") {
+  split_val <- 3500
+} else {
+  split_val <- 1000
+}
 
 d_within_utt <- d_within_utt %>% 
   mutate(utt_length_type = ifelse(duration_ms <= split_val, "short", "long"))
 
 ss_within_utt <- d_within_utt %>% 
-  group_by(seg_id, speaker_id, time_bin_within_utt, speech_register, 
-           utt_length_type, exp_run_id) %>% 
+  group_by(seg_id, speaker_id, time_bin_within_utt, 
+           speech_register, utt_length_type, exp_run_id) %>% 
   summarise(m_prob_seg = mean(prob_mass)) %>% 
-  group_by(speaker_id, time_bin_within_utt, speech_register, utt_length_type, exp_run_id) %>% 
+  group_by(speaker_id, time_bin_within_utt, speech_register, utt_length_type) %>% 
   summarise(m_prob = mean(m_prob_seg)) 
 
 ms_within_utt <- ss_within_utt %>% 
-  group_by(time_bin_within_utt, speech_register, utt_length_type, exp_run_id) %>% 
+  group_by(time_bin_within_utt, speech_register, utt_length_type) %>% 
   tidyboot_mean(column = m_prob) 
 
-ms_within_utt %>% 
+temporal_plot_split <- ms_within_utt %>% 
   ggplot(aes(x = as_factor(time_bin_within_utt), y = empirical_stat, 
              color = speech_register, group = speech_register)) +
   geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper), 
                   position = position_dodge(0.1)) +
+  geom_label_repel(data = subset(ms_within_utt, time_bin_within_utt == max(time_bin_within_utt)),
+                   nudge_x = 1,
+                   aes(label = speech_register)) +
   geom_line(size = 1,
             position = position_dodge(0.1)) +
   scale_color_ptol() +
   guides(color = "none") + 
   lims(y = c(0, NA)) +
-  labs(x = "Relative position in Utterance", y = "Mean Prob.", color = "Speech Register") +
+  coord_cartesian(xlim = c(0, 11)) +
+  labs(x = "Relative position in Utterance", y = "Mean Posterior Prob.") +
   theme(legend.position = "right") +
-  facet_grid(fct_rev(utt_length_type) ~ exp_run_id)
+  facet_wrap(~ fct_rev(utt_length_type), ncol = 1)
+
+temporal_plot_split
 ```
 
 Same plot but collapse across relative position in utterance
 
 ```{r}
 ms <- d_within_utt %>% 
-  group_by(speaker_id, seg_id, speech_register, utt_length_type, exp_run_id) %>% 
+  group_by(speaker_id, seg_id, speech_register, utt_length_type) %>% 
   summarise(m_seg = mean(prob_mass)) %>% 
-  group_by(speaker_id, speech_register, utt_length_type, exp_run_id) %>% 
+  group_by(speaker_id, speech_register, utt_length_type) %>% 
   summarise(m_speaker = mean(m_seg)) %>% 
-  group_by(speech_register, utt_length_type, exp_run_id) %>% 
+  group_by(speech_register, utt_length_type) %>% 
   tidyboot_mean(column = m_speaker) 
 
-ms %>%   
+temporal_plot_collapsed <- ms %>%   
   ggplot(aes(x = fct_rev(utt_length_type), y = empirical_stat, color = speech_register)) +
   geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
-                  position = position_dodge(0.1),
-                  size = 0.8) +
+                  position = position_dodge(0.1), size = 0.7) +
   ylim(0, NA) +
-  #guides(color = "none") +
-  labs(x = "Utterance Length", y = "Mean Prob.", color = "Speech Register") +
+  labs(x = "Utterance Length", y = "Mean Posterior Prob.", 
+       color = "Speech Register:") +
   scale_color_ptol() +
-  facet_wrap(~exp_run_id)
+  theme(legend.position = "top")
+```
+
+Pull plots together and save
+
+```{r}
+temporal_final_plot <- plot_grid(temporal_pred_plot, temporal_plot_collapsed, 
+          scale = c(0.95, 0.85), 
+          rel_widths = c(1, 0.8))
+
+fname <- paste0("writing/figs/", "temporal_pred_plot-", config_obj$exp_config$dataset_name, ".png")
+save_plot(here(fname), plot = temporal_final_plot, ncol = 2, nrow = 1.7)
+
+temporal_final_plot
 ```
 
 ## Predictability as a function of CDS in training

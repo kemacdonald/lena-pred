@@ -92,17 +92,17 @@ plot_cluster_shapes <- function(df_centers, scaled = TRUE) {
 
 plot_clusters_scatter <- function(d) {
   if (d$cluster %>% unique() %>% length() <= 12) {
-    d %>% 
+    plot <- d %>% 
       ggplot(aes(coef_quadratic, coef_linear, color = as_factor(cluster))) +
-      geom_point(size = 3, alpha = 0.7) +
-      ggthemes::scale_color_ptol(drop = FALSE) +
-      facet_grid(dataset ~ speech_register)
+      ggthemes::scale_color_ptol(drop = FALSE) 
   } else {
-    d %>% 
-      ggplot(aes(coef_quadratic, coef_linear, color = cluster)) +
-      geom_point(size = 3, alpha = 0.7) +
-      facet_grid(dataset ~ speech_register)
+    plot <- d %>% 
+      ggplot(aes(coef_quadratic, coef_linear, color = cluster)) 
   }
+  plot + 
+    labs(x = "Quadratic Coef", y = "Linear Coef", color = "Cluster") +
+    geom_point(size = 2, alpha = 0.3) +
+    facet_grid(dataset ~ speech_register)
 }
 
 # plot a sample of the pitch shapes based on the polynomial coefs returned in the
@@ -123,7 +123,7 @@ plot_sample_pitch_shapes <- function(d, frac_sample) {
     facet_wrap(~cluster, scales = "free_y")
 }
 
-# takes a seg_id index, df with original pitch contour values, and df with pitch recongstruced from
+# takes a seg_id index, df with original pitch contour values, and df with pitch reconstructed from
 # separte 100ms second order polynomials and plots them alongside each other for sanity check
 plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
   
@@ -143,7 +143,6 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
            x = seq(0, unique(n_samples) - 1, by = 1)) %>%
     ggplot(aes(time, pitch_original)) +
     geom_point(size = 2, color = "#756bb1") +
-    #geom_line(size = 1, color = "#756bb1") +
     guides(fill = F) +
     lims(y = c(0, raw_pitch_max)) +
     labs(x = "time (ms)", y = "freq (Hz)") +
@@ -160,8 +159,7 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
     ggplot(aes(time, z_log_pitch_interp)) +
     geom_line(size = 1, color = "#756bb1") +
     guides(fill = F) +
-    lims(y = c(-2.5, 2.5)) +
-    #lims(y = ylims) +
+    lims(y = c(-3.5, 3.5)) +
     labs(x = "time (ms)", y = "normalized log pitch") +
     facet_wrap(~seg_id, scales = "free_x") +
     theme(legend.position = 'top') 
@@ -184,8 +182,7 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
   segmented_plot <-  df_preds_expanded %>%
     ggplot(aes(time_ms, pred)) +
     geom_line(size = 1, color = "#756bb1") +
-    #lims(y = ylims) +
-    lims(y = c(-2.5, 2.5)) +
+    lims(y = c(-3.5, 3.5)) +    
     guides(fill = F) +
     facet_wrap(~time_bin_id, scales = "free_x", nrow =1) +
     theme(legend.position = 'top',
@@ -196,10 +193,11 @@ plot_reconstructed_pitch <- function(seg_id_to_plot, df_raw, df_preds) {
   if ( df_cluster_labels$cluster %>% nlevels() <= 12 ) {
     segmented_plot <- segmented_plot +
       geom_label(data = df_cluster_labels,
-                 aes(time_ms, pred, label = cluster,fill = cluster),
+                 aes(time_ms, pred, label = cluster, fill = as_factor(cluster)),
                  color = "white",
-                 nudge_x = 20,
+                 nudge_x = 10,
                  nudge_y = -0.2) +
+      ggthemes::scale_color_ptol(drop = FALSE) +
       ggthemes::scale_fill_ptol(drop = FALSE)
   } else {
     segmented_plot <- segmented_plot +

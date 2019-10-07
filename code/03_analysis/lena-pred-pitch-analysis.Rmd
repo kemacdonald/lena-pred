@@ -16,7 +16,15 @@ knitr::opts_chunk$set(echo = T, warning = F, message = F, fig.asp = 0.8,
 Load extracted pitch contours
 
 ```{r extracted pitch estimates}
-d <- read_rds(here(config_obj$paths_config$pitch_sum_path, "lena-pred-pitch-vals.rds"))
+d <- read_rds(
+  paste0(config_obj$paths_config$pitch_sum_path, 
+         "lena-pred-pitch-vals",
+         "-",
+         config_obj$exp_config$dataset_name,
+         "-", 
+         config_obj$kmeans_config$scale_coefs,
+         ".rds"))
+
 d$speech_register <- factor(d$speech_register) %>% fct_rev()
 ```
 
@@ -28,26 +36,43 @@ Compare raw FO means, SDs, and range
 ss <- d %>% 
   group_by(speaker_id, speech_register, seg_id) %>% 
   summarise(m = mean(pitch_original, na.rm = T), 
-            m_log = mean(log_pitch_interp)) %>% 
+            min_pit = min(pitch_original, na.rm = T),
+            max_pit = max(pitch_original, na.rm = T), 
+            sd_pit = sd(pitch_original, na.rm = T)) %>% 
+  mutate(range_pit = max_pit - min_pit) %>% 
   group_by(speaker_id, speech_register) %>% 
-  summarise(m = mean(m), 
-            m_log = mean(m_log))
+  summarise(m = mean(m),
+            m_range = mean(range_pit), 
+            m_sd_pit = sd(sd_pit))
   
-ms <- ss %>% 
-  group_by(speech_register) %>% 
-  tidyboot_mean(column = m)
+# compute difference scores
+ss_diff <- ss %>% 
+  pivot_wider(names_from = speech_register, 
+              values_from = c(m, m_range, m_sd_pit)) %>% 
+  mutate(mean = m_IDS - m_ADS,
+         range = m_range_IDS - m_range_ADS,
+         SD = m_sd_pit_IDS - m_sd_pit_ADS) %>% 
+  select(speaker_id, mean:SD) %>% 
+  pivot_longer(cols = mean:SD, names_to = "statistic")
+  
+ms <- ss_diff %>% 
+  group_by(statistic) %>% 
+  tidyboot_mean(column = value)
 
-ms %>% 
-  ggplot(aes(x = speech_register, y = empirical_stat)) +
-  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper)) +
-  labs(y = "Pitch (Hz)") +
-  lims(y = c(150, 300))
+pit_summaries <- ms %>% 
+  ggplot(aes(x = fct_reorder(statistic, empirical_stat), y = empirical_stat)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper), size = 0.5) +
+  geom_hline(yintercept = 0, lty = "dashed") + 
+  labs(y = "Pitch Difference Score \n(IDS - ADS)", x = NULL) +
+  coord_flip() +
+  lims(y = c(-40, 40)) 
 ```
 
 ## Temporal analysis
 
 ```{r}
 nbins <- 10
+
 d_temp <- d %>% 
   mutate(time_bin_id_num = as.numeric(time_bin_id)) %>% 
   group_by(seg_id) %>% 
@@ -55,47 +80,39 @@ d_temp <- d %>%
 
 ss_within_utt <- d_temp %>% 
   group_by(seg_id, speaker_id, time_bin_within_utt, speech_register) %>% 
-  summarise(m_log_pitch = mean(z_log_pitch_interp))
+  summarise(m_pitch = mean(pitch_original)) %>% 
+  group_by(speaker_id, time_bin_within_utt, speech_register) %>% 
+  summarise(m = mean(m_pitch, na.rm = T))
 
-ms_within_utt <- ss_within_utt %>% 
+  ms_within_utt <- ss_within_utt %>% 
   group_by(time_bin_within_utt, speech_register) %>% 
-  tidyboot_mean(column = m_log_pitch) 
+  tidyboot_mean(column = m) 
 
-ms_within_utt %>% 
+pitch_temporal <- ms_within_utt %>% 
   ggplot(aes(x = as_factor(time_bin_within_utt), y = empirical_stat, 
              color = speech_register, group = speech_register)) +
   geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper)) +
+  coord_cartesian(xlim = c(0, 11)) +
+  geom_label_repel(data = subset(ms_within_utt, time_bin_within_utt == max(time_bin_within_utt)),
+                   nudge_x = 1,
+                   aes(label = speech_register)) +
+  guides(color = F) + 
   geom_line(size = 1) +
   scale_color_ptol() +
-  labs(x = "Relative position in Utterance", y = "Mean Z-Log Pitch") +
-  theme(legend.position = "top")
+  labs(x = "Relative position in Utterance", y = "Pitch (Hz)")
 ```
 
-Split by duration of utterance
+## Put raw pitch plots together and save
 
 ```{r}
-split_val <- median(d$duration_ms)
+final_pitch_plot <- plot_grid(pit_summaries, pitch_temporal, 
+          rel_widths = c(0.8, 1),
+          scale = c(0.8, 0.9))
 
-d_temp <- d_temp %>% mutate(utt_length_type = ifelse(duration_ms <= split_val, "short", "long"))
+fname <- paste0("writing/figs/", "raw_pitch_plot-", config_obj$exp_config$dataset_name, ".png")
 
-ss_within_utt <- d_temp %>% 
-  group_by(seg_id, speaker_id, time_bin_within_utt, speech_register, utt_length_type) %>% 
-  summarise(m = mean(z_log_pitch_interp)) %>% 
-  group_by(speaker_id, time_bin_within_utt, speech_register, utt_length_type) %>%
-  summarise(m_log_pitch = mean(m))
-
-ms_within_utt <- ss_within_utt %>% 
-  group_by(time_bin_within_utt, speech_register, utt_length_type) %>% 
-  tidyboot_mean(column = m_log_pitch) 
-
-ms_within_utt %>% 
-  ggplot(aes(x = as_factor(time_bin_within_utt), y = empirical_stat, 
-             fill = speech_register, group = speech_register)) +
-  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.2) +
-  geom_line(aes(color = speech_register), size = 1) +
-  scale_fill_ptol() +
-  scale_color_ptol() +
-  labs(x = "Relative position in Utterance", y = "Mean Z-Log Pitch") +
-  theme(legend.position = "top") +
-  facet_wrap(~fct_rev(utt_length_type), ncol = 2)
+save_plot(plot = final_pitch_plot, ncol = 1.7, nrow = 1, here(fname))
 ```
+
+
+

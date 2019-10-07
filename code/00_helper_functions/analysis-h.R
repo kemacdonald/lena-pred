@@ -9,9 +9,14 @@ read_lena_pred_data <- function(file_name,
   if (f_type == "rds") {
     
     if (is_pitch) {
-      read_rds(here(config_obj$paths_config$pitch_sum_path, paste0(file_name, ".rds")))
+      f_name <- paste0(file_name, 
+             config_obj$exp_config$dataset_name,
+             "-",
+             config_obj$kmeans_config$scale_coefs,
+             ".rds") 
+      read_rds(here(config_object$paths_config$pitch_sum_path, f_name))
     } else {
-      read_rds(here(config_obj$paths_config$lstm_preds_path, file_name)) 
+      read_rds(here(config_object$paths_config$lstm_preds_path, file_name)) 
     }
     
   } else if (f_type == "csv") {
@@ -92,6 +97,10 @@ get_bda_results <- function(m_fit, var_name) {
 
 score_persistence_alg <- function(d, model_name) {
   d_preds <- tibble(sample_id = 1:length(d$train_data$next_cluster),
+                    speaker_id = lead(d$train_data$next_cluster_speaker_id) %>% as.character(),
+                    seg_id = lead(d$train_data$next_cluster_seg_id) %>% as.character(),
+                    time_bin_id = lead(d$train_data$next_cluster_time_bin_id) %>% as.character(),
+                    speech_register = lead(d$train_data$next_cluster_speech_register) %>% as.character(),
                     tminus_1 = lag(d$train_data$next_cluster) %>% as.integer(), 
                     tplus_1 = lead(d$train_data$next_cluster) %>% as.integer())
   
@@ -101,20 +110,11 @@ score_persistence_alg <- function(d, model_name) {
   # score accuracy (how often does t-1 correctly predict t+1?)
   d_preds <- d_preds %>% mutate(correct_pred = ifelse(tminus_1 == tplus_1, 1, 0))
   
-  acc <- round(mean(d_preds$correct_pred, na.rm = T), 2)
-  
-  # if ( str_detect(d$actual_prop_cds_train$speech_register, "ADS") %>% all() ) {
-  #   prop_cds <- 1 - d$actual_prop_cds_train %>% filter(speech_register == "ADS") %>% pull(prop) 
-  # } else {
-  #   prop_cds <- d$actual_prop_cds_train %>% filter(speech_register == "IDS") %>% pull(prop) 
-  # }
-  
-  p_cs <- get_prop_cds(model_name)
-  nq <- get_nqshapes(model_name)
-  
-  tibble(
-    prop_cds = p_cs,
-    n_qshapes = nq,
-    acc = acc
-  )
+  d_preds %>% 
+    group_by(speaker_id, seg_id, speech_register) %>% 
+    summarise(m = mean(correct_pred)) %>% 
+    mutate(
+      prop_cds = get_prop_cds(model_name),
+      n_qshapes = get_nqshapes(model_name)
+    )
 }
