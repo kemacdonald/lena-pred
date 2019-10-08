@@ -1,7 +1,7 @@
 # Pitch Config File -------------------------------------------------------
 set.seed(1234567)
 datasets <- list(pilot = "pilot", mb = "ManyBabies", lena = "IDSLabel")
-dataset_name <- datasets[['mb']]
+dataset_name <- datasets[['lena']]
 debug_exp <- FALSE
 
 if (debug_exp) {

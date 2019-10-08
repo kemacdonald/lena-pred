@@ -77,7 +77,6 @@ run_experiment <- function(run_id,
             compress = "gz")
   
   print(paste("Completed and saved result for experimental:", run_id))
-  d_results
 }
 
 pitch_to_coefs <- function(run_id, config_object) {

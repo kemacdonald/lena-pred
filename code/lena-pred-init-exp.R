@@ -1,13 +1,11 @@
 # Experiment Init Script ---------------------------------------------------------
 
-library(here)
-source(here("code/00_config/lena-pred-libraries.R")) 
+source(here::here("code/00_config/lena-pred-libraries.R")) 
 source(here("code/00_config/lena-pred-config.R"))    
-plan(multiprocess)
 
 # for each fold of test data, we now generate a dataset,
 # train model, and generate predictions
-d_results <- vector(mode="list", length=length(1:length(runs)))
+d_results <- vector(mode="list", length=length(1:length(config_obj$exp_config$runs)))
 
 # this will return a list of dnn predictions for 
 # each run of experiment with k folds
@@ -19,7 +17,7 @@ config_obj$exp_config$runs %>%
   map(run_experiment, 
       config_object = config_obj, 
       k = config_obj$exp_config$n_folds,
-      run_pitch_to_coefs = FALSE,
+      run_pitch_to_coefs = TRUE,
       run_coefs_to_clusters = TRUE)
 
 print("Completed and saved all runs of the experiment!")
