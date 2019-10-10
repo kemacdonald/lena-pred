@@ -19,6 +19,6 @@ config_obj$exp_config$runs %>%
       config_object = config_obj, 
       k = config_obj$exp_config$n_folds,
       run_pitch_to_coefs = FALSE,
-      run_coefs_to_clusters = TRUE)
+      run_coefs_to_clusters = FALSE)
 
 print("Completed and saved all runs of the experiment!")

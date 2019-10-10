@@ -53,6 +53,22 @@ create_lstm <- function(d, lstm_config) {
                return_sequences = F) %>%
     layer_dense(n_shapes, activation = "softmax")
   
+  ## multi-layer lstm
+  # model %>%
+  #   layer_embedding(
+  #     input_dim = input_shape,
+  #     output_dim = lstm_config$lstm_output_dim,
+  #     input_length = input_length) %>%
+  #   layer_lstm(units = lstm_config$lstm_units,
+  #              input_shape = c(input_length, input_shape),
+  #              dropout = lstm_config$dropout,
+  #              return_sequences = TRUE) %>%
+  #   layer_lstm(units = lstm_config$lstm_units,
+  #              input_shape = c(input_length, input_shape),
+  #              dropout = lstm_config$dropout,
+  #              return_sequences = FALSE) %>%
+  #   layer_dense(n_shapes, activation = "softmax")
+  
   optimizer <- optimizer_rmsprop(lr = lstm_config$lr)
   
   model %>% compile(

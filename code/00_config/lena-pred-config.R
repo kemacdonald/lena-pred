@@ -2,22 +2,27 @@
 set.seed(1234567)
 datasets <- list(pilot = "pilot", mb = "ManyBabies", lena = "IDSLabel")
 dataset_name <- datasets[['lena']]
-debug_exp <- FALSE
+debug_exp <- TRUE
 
 if (debug_exp) {
-  runs <- c("run1", "run2") 
-  n_folds <- 2
-  prop_cds_vals <-  c(0.5, 1)
+  runs <- c("run1") 
+  n_folds <- 1
+  prop_cds_vals <-  c(0.5)
   n_qshapes_vals <- c(12)   
-  n_epochs <- 1
-  batch_size <- 100
+  n_epochs <- 30
+  batch_size <- 1000
 } else {
   runs <- c("run1", "run2", "run3", "run4", "run5")
   n_folds <- 5
   prop_cds_vals <-  c(0, 0.25, 0.5, 0.75, 1)
   n_qshapes_vals <- c(6, 12, 24)   
-  n_epochs <- 15
-  batch_size <- 50
+  if (dataset_name == "IDSLabel" ) {
+    n_epochs = 25
+    batch_size <- 1000  
+  } else {
+    n_epochs <- 15
+    batch_size <- 50  
+  }
 }
 
 path_to_wav <- case_when(
@@ -90,7 +95,7 @@ config_obj <- list(
                       lstm_preds_path = paste0("data/03_summaries/", dataset_name, "/02_lstm-data/experimental_runs")),
   
   lstm_config = list(
-    lstm_units = 30,
+    lstm_units = 240,
     lstm_output_dim = 30,
     n_epochs = n_epochs,
     include_early_stop = FALSE, # set to FALSE if we want the same number of training epochs across "conditions"
@@ -107,3 +112,4 @@ config_obj <- list(
     input_shape = n_qshapes_vals + 1
   )
 )
+
